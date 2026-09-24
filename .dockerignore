@@ -1,0 +1,7 @@
+.git
+node_modules
+.next
+proxy/upstream/.git
+proxy/upstream/node_modules
+proxy/upstream/archive
+proxy/upstream/.env*

@@ -1,0 +1,40 @@
+{
+  "name": "halcyon",
+  "version": "1.0.0",
+  "description": "Self-hosted web proxy on Scramjet 2.x + Wisp + libcurl, with a built-in ad/tracker/malware blocker.",
+  "main": "server.js",
+  "scripts": {
+    "postinstall": "patch-package",
+    "start": "node server.js"
+  },
+  "keywords": [
+    "web-proxy",
+    "proxy",
+    "scramjet",
+    "wisp",
+    "libcurl",
+    "service-worker",
+    "adblock",
+    "privacy",
+    "self-hosted",
+    "nodejs"
+  ],
+  "author": "Novaro1",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/Novaro1/halcyon#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Novaro1/halcyon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Novaro1/halcyon/issues"
+  },
+  "type": "module",
+  "dependencies": {
+    "@mercuryworkshop/libcurl-transport": "^2.0.5",
+    "@mercuryworkshop/scramjet": "https://github.com/MercuryWorkshop/scramjet/releases/download/latest/mercuryworkshop-scramjet-2.0.67-alpha.2.tgz",
+    "@mercuryworkshop/scramjet-controller": "https://github.com/MercuryWorkshop/scramjet/releases/download/latest/mercuryworkshop-scramjet-controller-0.0.14.tgz",
+    "@mercuryworkshop/wisp-js": "^0.5.0",
+    "patch-package": "^8.0.0"
+  }
+}

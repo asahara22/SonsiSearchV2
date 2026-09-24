@@ -1,0 +1,89 @@
+diff --git a/node_modules/@mercuryworkshop/wisp-js/src/server/filter.mjs b/node_modules/@mercuryworkshop/wisp-js/src/server/filter.mjs
+index 02d7c27..54d2861 100644
+--- a/node_modules/@mercuryworkshop/wisp-js/src/server/filter.mjs
++++ b/node_modules/@mercuryworkshop/wisp-js/src/server/filter.mjs
+@@ -100,7 +100,7 @@ export async function is_stream_allowed(connection, type, hostname, port) {
+     return close_reasons.ConnThrottled;
+   if (options.stream_limit_per_host !== -1) {
+     let streams_per_host = 0;
+-    for (let stream of connection.streams) {
++    for (let stream of Object.values(connection.streams)) {
+       if (stream.socket.hostname === hostname) {
+         streams_per_host++;
+       }
+diff --git a/node_modules/@mercuryworkshop/wisp-js/src/server/http.mjs b/node_modules/@mercuryworkshop/wisp-js/src/server/http.mjs
+index ba3cbc0..53716ca 100644
+--- a/node_modules/@mercuryworkshop/wisp-js/src/server/http.mjs
++++ b/node_modules/@mercuryworkshop/wisp-js/src/server/http.mjs
+@@ -9,7 +9,10 @@ import { is_node, assert_on_node } from "./net.mjs";
+ 
+ let ws_server = null;
+ if (is_node) {
+-  ws_server = new compat.WebSocketServer({ noServer: true });
++  ws_server = new compat.WebSocketServer({
++    noServer: true,
++    maxPayload: Number(process.env.HALCYON_MAX_WS_MESSAGE_BYTES || 262144),
++  });
+ }
+ 
+ export function parse_real_ip(headers, client_ip) {
+diff --git a/node_modules/@mercuryworkshop/wisp-js/src/server/net.mjs b/node_modules/@mercuryworkshop/wisp-js/src/server/net.mjs
+index 426329a..2c293ba 100644
+--- a/node_modules/@mercuryworkshop/wisp-js/src/server/net.mjs
++++ b/node_modules/@mercuryworkshop/wisp-js/src/server/net.mjs
+@@ -133,19 +133,42 @@ export class NodeTCPSocket {
+     await new Promise((resolve, reject) => {
+       this.socket = new net.Socket();
+       this.socket.setNoDelay(true);
++      const connectTimeoutMs = Math.max(1, Number(process.env.HALCYON_CONNECT_TIMEOUT_MS || 15000));
++      const idleTimeoutMs = Math.max(0, Number(process.env.HALCYON_STREAM_IDLE_TIMEOUT_MS || 60000));
++      const timeout = setTimeout(() => {
++        this.socket?.destroy(new Error("TCP connection timeout"));
++      }, connectTimeoutMs);
++      timeout.unref?.();
++      if (idleTimeoutMs > 0) {
++        this.socket.setTimeout(idleTimeoutMs, () => {
++          this.socket?.destroy(new Error("TCP stream idle timeout"));
++        });
++      }
+       this.socket.on("connect", () => {
++        clearTimeout(timeout);
+         this.connected = true;
+         resolve();
+       });
+       this.socket.on("data", (data) => {
++        const maxStreamBytes = Math.max(0, Number(process.env.HALCYON_MAX_STREAM_BYTES || 67108864));
++        this.bytes_received = (this.bytes_received || 0) + data.byteLength;
++        if (maxStreamBytes > 0 && this.bytes_received > maxStreamBytes) {
++          this.socket?.destroy(new Error("TCP stream byte limit exceeded"));
++          return;
++        }
+         this.data_queue.put(data);
+       });
+       this.socket.on("close", (error) => {
++        clearTimeout(timeout);
+         if (error && !this.connected) reject();
+         else this.data_queue.close();
+         this.socket = null;
+       });
+       this.socket.on("error", (error) => {
++        if (!this.connected) {
++          clearTimeout(timeout);
++          reject(error);
++        }
+         logging.warn(`tcp stream to ${this.hostname} ended with error - ${error}`);
+       });
+       this.socket.on("end", () => {
+@@ -165,6 +188,12 @@ export class NodeTCPSocket {
+   }
+ 
+   async send(data) {
++    const maxStreamBytes = Math.max(0, Number(process.env.HALCYON_MAX_STREAM_BYTES || 67108864));
++    this.bytes_sent = (this.bytes_sent || 0) + data.byteLength;
++    if (maxStreamBytes > 0 && this.bytes_sent > maxStreamBytes) {
++      this.socket?.destroy(new Error("TCP stream byte limit exceeded"));
++      throw new Error("TCP stream byte limit exceeded");
++    }
+     await new Promise((resolve) => {
+       this.socket.write(data, resolve);
+     });

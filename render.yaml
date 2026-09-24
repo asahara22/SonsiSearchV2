@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: sonsisearch-proxy
+    runtime: docker
+    dockerfilePath: ./proxy/Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: HALCYON_PASSWORD
+        sync: false
+      - key: HALCYON_EMBED_ORIGINS
+        sync: false
+      - key: HALCYON_ALLOWED_PORTS
+        value: 80,443
+      - key: HALCYON_RL_HTTP
+        value: "180"
+      - key: HALCYON_RL_LOGIN
+        value: "10"
+      - key: HALCYON_RL_WISP
+        value: "30"
+      - key: HALCYON_MAX_CONN
+        value: "16"
+      - key: HALCYON_MAX_STREAMS
+        value: "32"
+      - key: HALCYON_MAX_STREAMS_PER_HOST
+        value: "8"
+      - key: HALCYON_MAX_WS_MESSAGE_BYTES
+        value: "262144"
+      - key: HALCYON_CONNECT_TIMEOUT_MS
+        value: "15000"
+      - key: HALCYON_STREAM_IDLE_TIMEOUT_MS
+        value: "60000"
+      - key: HALCYON_MAX_STREAM_BYTES
+        value: "67108864"
+      - key: HALCYON_DENY_HOSTS
+        value: ""

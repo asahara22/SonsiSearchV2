@@ -1,0 +1,2 @@
+.connection-overlay{position:absolute;inset:0;z-index:2;display:grid;place-items:center;padding:20px;background:#080b13c9;backdrop-filter:blur(14px)}
+@media(max-width:600px){.connection-overlay{padding:12px}.connection-error{padding:23px 16px}}
