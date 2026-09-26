@@ -172,7 +172,14 @@
             setDiagnostic("bare-egress", result.status >= 200 && result.status < 400 ? "ok" : "failed", result.status >= 200 && result.status < 400 ? "Bare経由で外部HTTPSサイトを取得できました" : `Bare経由の外部HTTPS取得がHTTP ${result.status}で失敗しました`);
           } catch (error) {
             const status = Number(error?.status);
-            setDiagnostic("bare-egress", "failed", status ? `Bare Serverは応答しましたが外部HTTPS取得がHTTP ${status}で拒否されました` : "Bare endpointには届きましたが、外部HTTPSの取得に失敗しました。端末フィルター、Renderの外向き接続、Bare transportを確認してください");
+            const body = error?.body && typeof error.body === "object" ? error.body : {};
+            const stack = typeof body.stack === "string" ? body.stack : "";
+            const networkCode = ["EAI_AGAIN", "ENOTFOUND", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "CERT_", "TLS", "SSL"].find((code) => stack.toUpperCase().includes(code));
+            const reason = String(body.code || networkCode || body.id || "network_error").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 48);
+            const detail = status
+              ? `Bare Serverは応答しましたが外部HTTPS取得に失敗しました (HTTP ${status}, ${reason})。DNS/接続/TLSを確認してください`
+              : `Bare endpointには届きましたが外部HTTPS取得に失敗しました (${reason})。Renderのログと外向き通信を確認してください`;
+            setDiagnostic("bare-egress", "failed", detail);
           }
         }
       } catch { setDiagnostic("bare-http", "failed", "Bare HTTP接続に失敗しました。端末フィルターやRender側のBare設定を確認してください"); }
