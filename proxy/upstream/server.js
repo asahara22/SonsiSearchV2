@@ -3,7 +3,7 @@ import { createReadStream, existsSync, statSync, readFileSync } from "node:fs";
 import { extname, join, normalize, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { server as wisp, logging } from "@mercuryworkshop/wisp-js/server";
 
 const require = createRequire(import.meta.url);
@@ -122,6 +122,26 @@ const bareServer = createBareServer("/bare/", {
 const bareLimiter = makeLimiter(num("HALCYON_RL_BARE", 900), 60_000);
 const BARE_MAX_REQUEST_BYTES = num("HALCYON_BARE_MAX_REQUEST_BYTES", 8 * 1024 * 1024);
 const BARE_MAX_RESPONSE_BYTES = num("HALCYON_BARE_MAX_RESPONSE_BYTES", 64 * 1024 * 1024);
+const BARE_TOKEN_TTL_SECONDS = 5 * 60;
+const bareTokenLimiter = makeLimiter(60, 60_000);
+
+function createBareToken() {
+  const expires = Math.floor(Date.now() / 1000) + BARE_TOKEN_TTL_SECONDS;
+  const signature = createHmac("sha256", AUTH_TOKEN).update(`bare:${expires}`).digest("hex");
+  return `${expires}.${signature}`;
+}
+
+function isValidBareToken(req) {
+  if (!AUTH_TOKEN) return false;
+  const match = (req.headers.authorization || "").match(/^Bearer (\d{10})\.([a-f0-9]{64})$/i);
+  if (!match) return false;
+  const expires = Number(match[1]);
+  const now = Math.floor(Date.now() / 1000);
+  if (expires < now || expires > now + BARE_TOKEN_TTL_SECONDS) return false;
+  const expected = Buffer.from(createHmac("sha256", AUTH_TOKEN).update(`bare:${expires}`).digest("hex"));
+  const supplied = Buffer.from(match[2].toLowerCase());
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
 
 function capBareResponse(res) {
   let sent = 0;
@@ -584,14 +604,16 @@ function sendFile(res, filePath, { immutable = false } = {}) {
 }
 
 // ---- Auth helpers ---------------------------------------------------------
-function isAuthed(req) {
+function isAuthed(req, allowBareToken = false) {
   if (!AUTH_TOKEN) return true;
   const cookie = req.headers.cookie || "";
   const match = cookie.match(/(?:^|;\s*)halcyon_auth=([a-f0-9]{64})/);
-  if (!match) return false;
-  const a = Buffer.from(match[1]);
-  const b = Buffer.from(AUTH_TOKEN);
-  return a.length === b.length && timingSafeEqual(a, b);
+  if (match) {
+    const a = Buffer.from(match[1]);
+    const b = Buffer.from(AUTH_TOKEN);
+    if (a.length === b.length && timingSafeEqual(a, b)) return true;
+  }
+  return allowBareToken && isValidBareToken(req);
 }
 
 function readBody(req) {
@@ -646,6 +668,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     let path = decodeURIComponent(url.pathname);
+    const isBareRequest = bareServer.shouldRoute(req);
 
     // Caddy on-demand-TLS allowlist check (internal; Caddy 404s it publicly).
     // Answered before rate-limit/auth so onboarding a batch of domains isn't
@@ -734,7 +757,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         return res.end(loginPage(false));
       }
-      if (!isAuthed(req)) {
+      if (!isAuthed(req, isBareRequest)) {
         const wantsHtml = (req.headers.accept || "").includes("text/html");
         if (wantsHtml) {
           res.writeHead(303, { Location: "/login" });
@@ -743,6 +766,25 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(401, { "Content-Type": "text/plain" });
         return res.end("Unauthorized");
       }
+    }
+
+    // Bare transport omits browser cookies by design. Issue a short-lived,
+    // scoped bearer token only to an already authenticated browser session.
+    if (path === "/.well-known/halcyon-bare-token") {
+      if (!AUTH_TOKEN) {
+        res.writeHead(503, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+        return res.end(JSON.stringify({ error: "Bare transport authentication is not configured." }));
+      }
+      if (req.method !== "GET") {
+        res.writeHead(405, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+        return res.end(JSON.stringify({ error: "Method not allowed." }));
+      }
+      if (!bareTokenLimiter(ip)) {
+        res.writeHead(429, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "Retry-After": "60" });
+        return res.end(JSON.stringify({ error: "Token request limit reached." }));
+      }
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+      return res.end(JSON.stringify({ token: createBareToken() }));
     }
 
     // Same-origin search API: keeps the provider key on the server while
@@ -820,7 +862,7 @@ const server = http.createServer(async (req, res) => {
 
     // Authenticated Bare HTTP transport fallback. Wisp remains the normal
     // transport; this endpoint is used only when a user selects Bare.
-    if (bareServer.shouldRoute(req)) {
+    if (isBareRequest) {
       if (!AUTH_TOKEN) {
         res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
         return res.end("Bare transport requires HALCYON_PASSWORD to be configured.");

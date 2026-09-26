@@ -261,6 +261,57 @@
   }
 
   let controllerPromise = null;
+  let bareTransportModulePromise = null;
+
+  async function loadBareTransportModule() {
+    if (bareTransportModulePromise) return bareTransportModulePromise;
+    const nativeFetch = window.fetch.bind(window);
+    let bearerToken = "";
+    let tokenExpiresAt = 0;
+    let tokenRefresh = null;
+    const refreshToken = async () => {
+      if (tokenRefresh) return tokenRefresh;
+      tokenRefresh = (async () => {
+        const response = await nativeFetch("/.well-known/halcyon-bare-token", { cache: "no-store" });
+        if (!response.ok) throw new Error(`Bare authorization token unavailable (HTTP ${response.status})`);
+        const payload = await response.json();
+        if (typeof payload.token !== "string") throw new Error("Bare authorization token missing");
+        bearerToken = payload.token;
+        tokenExpiresAt = Date.now() + 4 * 60 * 1000;
+      })().finally(() => { tokenRefresh = null; });
+      return tokenRefresh;
+    };
+    const authenticatedFetch = async (input, init = {}) => {
+      let requestUrl;
+      try { requestUrl = new URL(input instanceof Request ? input.url : String(input), location.href); }
+      catch { return nativeFetch(input, init); }
+      if (requestUrl.origin !== location.origin || !requestUrl.pathname.startsWith("/bare/")) return nativeFetch(input, init);
+      if (!bearerToken || Date.now() >= tokenExpiresAt) await refreshToken();
+      const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+      headers.set("Authorization", `Bearer ${bearerToken}`);
+      return nativeFetch(input, { ...init, headers });
+    };
+    window.fetch = authenticatedFetch;
+    bareTransportModulePromise = import("/baremod/index.mjs").catch((error) => {
+      window.fetch = nativeFetch;
+      bareTransportModulePromise = null;
+      throw error;
+    });
+    return bareTransportModulePromise;
+  }
+
+  async function probeBareEgress() {
+    const { default: BareClient } = await loadBareTransportModule();
+    const client = new BareClient(new URL("/bare/", location.href));
+    const result = await client.request(new URL("https://example.com/"), "GET", undefined, [], AbortSignal.timeout(10000));
+    const reader = result.body?.getReader();
+    if (reader) {
+      const firstChunk = await reader.read();
+      await reader.cancel();
+      if (!firstChunk.value?.byteLength) throw new Error("The target returned an empty response");
+    }
+    return { status: result.status };
+  }
 
   // ---- Tabs -----------------------------------------------------------------
   // Each tab is its own Scramjet frame + <iframe>, all sharing the single
@@ -341,7 +392,7 @@
       await stage("controller-assets", () => loadScript(RUNTIME.controllerApi));
       const useBareTransport = localStorage.getItem("halcyon:transport") === "bare";
       const transportAssets = await stage("transport-assets", async () => {
-        if (useBareTransport) return import("/baremod/index.mjs");
+        if (useBareTransport) return loadBareTransportModule();
         await loadScript(RUNTIME.libcurl);
         return window.LibcurlTransport;
       });
@@ -445,6 +496,7 @@
   }
 
   const Halcyon = {
+    probeBareEgress,
     /** Give the runtime the container element where tab <iframe>s are mounted. */
     initTabs(container) {
       framesContainer = container;

@@ -160,15 +160,7 @@
         setDiagnostic("wisp-websocket", "ok", "Bare方式では通常のページ通信にWispは不要です");
         if (available) {
           try {
-            const { default: BareClient } = await import("/baremod/index.mjs");
-            const client = new BareClient(new URL("/bare/", location.href));
-            const result = await client.request(new URL("https://example.com/"), "GET", undefined, [], AbortSignal.timeout(10000));
-            const reader = result.body?.getReader();
-            if (reader) {
-              const firstChunk = await reader.read();
-              await reader.cancel();
-              if (!firstChunk.value?.byteLength) throw new Error("The target returned an empty response");
-            }
+            const result = await window.Halcyon.probeBareEgress();
             setDiagnostic("bare-egress", result.status >= 200 && result.status < 400 ? "ok" : "failed", result.status >= 200 && result.status < 400 ? "Bare経由で外部HTTPSサイトを取得できました" : `Bare経由の外部HTTPS取得がHTTP ${result.status}で失敗しました`);
           } catch (error) {
             const status = Number(error?.status);
