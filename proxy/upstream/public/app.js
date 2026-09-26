@@ -111,7 +111,7 @@
     for (const [stage, info] of entries) {
       const row = document.createElement("div"); row.className = "diagnostic-item";
       row.dataset.state = info.state === "failed" ? "fail" : info.state;
-      const mark = document.createElement("span"); mark.className = "diagnostic-mark"; mark.textContent = info.state === "ok" ? "✓" : info.state === "failed" ? "!" : "…";
+      const mark = document.createElement("span"); mark.className = "diagnostic-mark"; mark.textContent = info.state === "ok" ? "✓" : ["failed", "warn"].includes(info.state) ? "!" : "…";
       const copy = document.createElement("div");
       const name = document.createElement("strong"); name.textContent = stage;
       const detail = document.createElement("p"); detail.textContent = info.detail || info.state;
@@ -142,7 +142,7 @@
       setDiagnostic("proxy-http", response.ok ? "ok" : "failed", response.ok ? "同じRenderサービスに到達しました" : `HTTP ${response.status}`);
       const authOk = !info.authenticationRequired || info.authenticated;
       setDiagnostic("proxy-auth", authOk ? "ok" : "failed", info.authenticationRequired ? authOk ? "ログイン済みです" : "ログインセッションがありません。いったんロック解除して再確認してください" : "パスワード保護は無効です");
-      setDiagnostic("search-config", info.searchConfigured ? "ok" : "failed", info.searchConfigured ? "検索プロバイダーを設定済みです（キーはサーバー内に保持）" : "RenderにSEARCH_API_URLとSEARCH_API_KEYを設定してください");
+      setDiagnostic("search-config", info.searchConfigured ? "ok" : "warn", info.searchConfigured ? "検索プロバイダーを設定済みです（キーはサーバー内に保持）" : "検索機能のみ未設定です。Browser / Proxy接続には影響しません。RenderにSEARCH_API_URLとSEARCH_API_KEYを設定すると検索結果を利用できます。");
       if (!authOk) {
         setDiagnostic("wisp-websocket", "failed", "Proxyの認証を確認できません。再ログイン後にもう一度診断してください");
         $("#diag-summary").textContent = "ログイン状態を確認できません。まずロック解除して再確認してください。";
@@ -158,6 +158,23 @@
         const available = Boolean(manifest?.versions?.includes("v3"));
         setDiagnostic("bare-http", available ? "ok" : "failed", available ? "Bare ServerへHTTPSで接続できました" : `Bare Serverが利用できません (HTTP ${response.status})。RenderのHALCYON_PASSWORD設定を確認してください`);
         setDiagnostic("wisp-websocket", "ok", "Bare方式では通常のページ通信にWispは不要です");
+        if (available) {
+          try {
+            const { default: BareClient } = await import("/baremod/index.mjs");
+            const client = new BareClient(new URL("/bare/", location.href));
+            const result = await client.request(new URL("https://example.com/"), "GET", undefined, [], AbortSignal.timeout(10000));
+            const reader = result.body?.getReader();
+            if (reader) {
+              const firstChunk = await reader.read();
+              await reader.cancel();
+              if (!firstChunk.value?.byteLength) throw new Error("The target returned an empty response");
+            }
+            setDiagnostic("bare-egress", result.status >= 200 && result.status < 400 ? "ok" : "failed", result.status >= 200 && result.status < 400 ? "Bare経由で外部HTTPSサイトを取得できました" : `Bare経由の外部HTTPS取得がHTTP ${result.status}で失敗しました`);
+          } catch (error) {
+            const status = Number(error?.status);
+            setDiagnostic("bare-egress", "failed", status ? `Bare Serverは応答しましたが外部HTTPS取得がHTTP ${status}で拒否されました` : "Bare endpointには届きましたが、外部HTTPSの取得に失敗しました。端末フィルター、Renderの外向き接続、Bare transportを確認してください");
+          }
+        }
       } catch { setDiagnostic("bare-http", "failed", "Bare HTTP接続に失敗しました。端末フィルターやRender側のBare設定を確認してください"); }
     } else {
       setDiagnostic("transport-mode", "ok", "Wisp方式を選択中。閲覧内容のTLSはブラウザ内で処理します");
