@@ -650,6 +650,7 @@ const server = http.createServer(async (req, res) => {
         embedAllowed: !normalizedOrigin || normalizedOrigin === serviceOrigin || EMBED_ORIGINS.includes(normalizedOrigin),
         embeddingRequired: Boolean(normalizedOrigin && normalizedOrigin !== serviceOrigin),
         authenticationRequired: Boolean(AUTH_TOKEN),
+        authenticated: isAuthed(req),
         searchConfigured: Boolean(process.env.SEARCH_API_URL && process.env.SEARCH_API_KEY),
       }));
     }

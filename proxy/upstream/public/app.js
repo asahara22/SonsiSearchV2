@@ -139,10 +139,23 @@
       const response = await fetch("/.well-known/sonsisearch-diagnostics", { cache: "no-store" });
       const info = await response.json();
       setDiagnostic("proxy-http", response.ok ? "ok" : "failed", response.ok ? "同じRenderサービスに到達しました" : `HTTP ${response.status}`);
-      setDiagnostic("proxy-auth", info.authenticationRequired ? "ok" : "ok", info.authenticationRequired ? "パスワード保護が有効です" : "パスワード保護は無効です");
+      const authOk = !info.authenticationRequired || info.authenticated;
+      setDiagnostic("proxy-auth", authOk ? "ok" : "failed", info.authenticationRequired ? authOk ? "ログイン済みです" : "ログインセッションがありません。いったんロック解除して再確認してください" : "パスワード保護は無効です");
       setDiagnostic("search-config", info.searchConfigured ? "ok" : "failed", info.searchConfigured ? "検索プロバイダーを設定済みです（キーはサーバー内に保持）" : "RenderにSEARCH_API_URLとSEARCH_API_KEYを設定してください");
+      if (!authOk) {
+        setDiagnostic("wisp-websocket", "failed", "Proxyの認証を確認できません。再ログイン後にもう一度診断してください");
+        $("#diag-summary").textContent = "ログイン状態を確認できません。まずロック解除して再確認してください。";
+        return renderDiagnostics();
+      }
     } catch { setDiagnostic("proxy-http", "failed", "Proxyへ接続できません。端末のフィルターやネットワーク設定を確認してください"); }
-    const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/wisp/`;
+    let wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/wisp/`;
+    const savedWispUrl = localStorage.getItem("halcyon:wisp");
+    if (savedWispUrl) {
+      try {
+        const configured = new URL(savedWispUrl);
+        if (["ws:", "wss:"].includes(configured.protocol)) wsUrl = configured.href;
+      } catch { /* The runtime will report an invalid saved Wisp URL. */ }
+    }
     try {
       const wsResult = await new Promise((resolve) => {
         let settled = false; const finish = (ok, detail) => { if (settled) return; settled = true; clearTimeout(timer); try { socket.close(); } catch {} resolve({ ok, detail }); };
@@ -150,7 +163,7 @@
         let socket;
         try { socket = new WebSocket(wsUrl, "wisp-v2"); } catch { return finish(false, "WebSocketを開始できません"); }
         socket.addEventListener("open", () => finish(true, "Wisp WebSocketに接続できました"), { once: true });
-        socket.addEventListener("error", () => finish(false, "Wisp WebSocketが遮断または拒否されました"), { once: true });
+        socket.addEventListener("error", () => finish(false, "Wisp接続を確立できません。端末フィルター、ネットワーク、Render側の応答のいずれかを確認してください"), { once: true });
       });
       setDiagnostic("wisp-websocket", wsResult.ok ? "ok" : "failed", wsResult.detail);
     } catch { setDiagnostic("wisp-websocket", "failed", "Wisp WebSocketの確認に失敗しました"); }
