@@ -25,7 +25,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="ja" data-theme="dark" data-scroll-behavior="smooth" suppressHydrationWarning>
       <body>
-        <Script id="sonsisearch-theme-init" strategy="beforeInteractive">{`(()=>{try{const p=localStorage.getItem("sonsisearch:theme")||"system";document.documentElement.dataset.theme=p==="light"||p==="dark"?p:matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.r18=localStorage.getItem("sonsisearch:r18")==="enabled"?"true":"false"}catch{document.documentElement.dataset.theme=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}})()`}</Script>
+        <Script id="sonsisearch-theme-init" strategy="beforeInteractive">{`(()=>{try{const p=localStorage.getItem("sonsisearch:theme")||"system";document.documentElement.dataset.theme=p==="light"||p==="dark"||p==="cyber"?p:matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.r18=localStorage.getItem("sonsisearch:r18")==="enabled"?"true":"false"}catch{document.documentElement.dataset.theme=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}})()`}</Script>
         <AppChrome><PwaRegister />{children}</AppChrome>
       </body>
     </html>

@@ -10,12 +10,12 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const applyTheme = () => {
       const preference = localStorage.getItem("sonsisearch:theme") || "system";
-      const theme = preference === "light" || preference === "dark"
+      const theme = preference === "light" || preference === "dark" || preference === "cyber"
         ? preference
         : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       document.documentElement.dataset.theme = theme;
       const color = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-      if (color) color.content = theme === "light" ? "#f3f6fc" : "#0b1020";
+      if (color) color.content = theme === "light" ? "#f3f6fc" : theme === "cyber" ? "#080a16" : "#0b1020";
     };
     applyTheme();
     document.documentElement.dataset.r18 = localStorage.getItem("sonsisearch:r18") === "enabled" ? "true" : "false";
