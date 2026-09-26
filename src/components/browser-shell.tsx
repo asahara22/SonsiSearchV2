@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { parseAddressOrSearch } from "@/lib/address";
 import { buildSearchUrl, getSearchEngine } from "@/lib/search-engine";
@@ -9,13 +9,14 @@ type SavedSite = { title: string; url: string; visited: number };
 type DiagnosticCheck = { id: string; label: string; state: "pending" | "ok" | "warn" | "fail"; detail: string };
 type DiagnosticStage = { state: "running" | "ok" | "failed"; detail: string; at: number };
 
-export function BrowserShell({ initialUrl, proxyOrigin, incognito }: { initialUrl: string; proxyOrigin: string; incognito: boolean }) {
+export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; proxyOrigin: string }) {
   const initial = parseAddressOrSearch(initialUrl);
   const [input, setInput] = useState(initial.kind === "url" ? initial.value : "");
   const [target, setTarget] = useState(initial.kind === "url" ? initial.value : "");
   const [error, setError] = useState(initial.kind === "invalid" ? "Credentials in a URL are not supported." : proxyOrigin ? "" : "Proxy service is not configured.");
   const [loading, setLoading] = useState(initial.kind === "url");
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const incognito = useSyncExternalStore(subscribeIncognito, getIncognitoPreference, () => false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
@@ -76,7 +77,7 @@ export function BrowserShell({ initialUrl, proxyOrigin, incognito }: { initialUr
         setInput(url);
         setError("");
         if (!incognito) rememberVisit(url);
-        const route = `/browser?url=${encodeURIComponent(url)}${incognito ? "&incognito=1" : ""}`;
+        const route = `/browser?url=${encodeURIComponent(url)}`;
         if (`${window.location.pathname}${window.location.search}` !== route) router.replace(route);
         setIsBookmarked(!incognito && readBookmarks().some((item) => item.url === url));
       }
@@ -125,7 +126,7 @@ export function BrowserShell({ initialUrl, proxyOrigin, incognito }: { initialUr
     setInput(parsed.value);
     setLoading(true);
     setError("");
-    router.replace(`/browser?url=${encodeURIComponent(parsed.value)}${incognito ? "&incognito=1" : ""}`);
+    router.replace(`/browser?url=${encodeURIComponent(parsed.value)}`);
   }
 
   function updateDiagnostic(id: string, state: DiagnosticCheck["state"], detail: string) {
@@ -297,11 +298,6 @@ export function BrowserShell({ initialUrl, proxyOrigin, incognito }: { initialUr
         <button type="submit" className="address-go" aria-label="Go">→</button>
       </form>
       <button className={`browser-control bookmark-control${isBookmarked ? " saved" : ""}`} title={incognito ? "Bookmarks are disabled in a private session" : isBookmarked ? "Remove bookmark" : "Bookmark this page"} aria-label={isBookmarked ? "Remove bookmark" : "Bookmark this page"} disabled={incognito} onClick={toggleBookmark}>☆</button>
-      <button className={`incognito-control${incognito ? " is-active" : ""}`} aria-pressed={incognito} title={incognito ? "End private session" : "Start private session"} onClick={() => {
-        const next = !incognito;
-        const query = target ? `?url=${encodeURIComponent(target)}&incognito=${next ? "1" : "0"}` : `?incognito=${next ? "1" : "0"}`;
-        router.replace(`/browser${query}`);
-      }}>{incognito ? "◉ Private" : "◉"}</button>
       <div className="browser-menu-wrap"><button className="browser-control" aria-label="Browser menu" title="Menu" onClick={() => setMenuOpen((value) => !value)}>···</button>
         {menuOpen && <div className="browser-menu glass-panel">{[["Home", "/"], ["History", "/history"], ["Bookmarks", "/bookmarks"]].map(([label, href]) => <a href={href} key={href} onClick={() => setMenuOpen(false)}>{label}</a>)}<button onClick={() => { setMenuOpen(false); void runDiagnostics(); }}>Connection diagnostics</button>{target && <button onClick={() => { window.open(target, "_blank", "noopener,noreferrer"); setMenuOpen(false); }}>Open original ↗</button>}</div>}
       </div>
@@ -365,6 +361,11 @@ function safeHttpUrl(value: string): string | null {
 }
 
 function hostOf(value: string) { try { return new URL(value).hostname.replace(/^www\./, ""); } catch { return value; } }
+function getIncognitoPreference() { return localStorage.getItem("sonsisearch:incognito") === "enabled"; }
+function subscribeIncognito(callback: () => void) {
+  window.addEventListener("sonsisearch:incognito", callback); window.addEventListener("storage", callback);
+  return () => { window.removeEventListener("sonsisearch:incognito", callback); window.removeEventListener("storage", callback); };
+}
 function readBookmarks(): SavedSite[] { try { return JSON.parse(localStorage.getItem("sonsisearch:bookmarks") || "[]"); } catch { return []; } }
 function rememberVisit(url: string) {
   const history: SavedSite[] = (() => { try { return JSON.parse(localStorage.getItem("sonsisearch:history") || "[]"); } catch { return []; } })();

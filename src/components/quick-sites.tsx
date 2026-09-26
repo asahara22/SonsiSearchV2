@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { parseAddressOrSearch } from "@/lib/address";
 
@@ -36,15 +37,16 @@ export function QuickSites() {
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [adultEnabled, setAdultEnabled] = useState(false);
-  const [agePrompt, setAgePrompt] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     setSites(readSites());
-    setAdultEnabled(localStorage.getItem("sonsisearch:r18") === "enabled");
+    const syncAdultMode = () => setAdultEnabled(localStorage.getItem("sonsisearch:r18") === "enabled");
+    syncAdultMode();
+    window.addEventListener("sonsisearch:r18", syncAdultMode);
+    window.addEventListener("storage", syncAdultMode);
+    return () => { window.removeEventListener("sonsisearch:r18", syncAdultMode); window.removeEventListener("storage", syncAdultMode); };
   }, []);
-  useEffect(() => {
-    document.documentElement.dataset.r18 = adultEnabled ? "true" : "false";
-  }, [adultEnabled]);
 
   function save(next: Site[]) {
     setSites(next);
@@ -57,11 +59,6 @@ export function QuickSites() {
     save([...sites, { title: title.trim().slice(0, 32), url: parsed.value }]);
     setTitle(""); setUrl("");
   }
-  function enableAdult() {
-    localStorage.setItem("sonsisearch:r18", "enabled");
-    setAdultEnabled(true); setAgePrompt(false);
-  }
-
   return <section className="quick-sites-section" aria-label="Quick links">
     <div className="section-heading"><div><span className="eyebrow">YOUR SHORTCUTS</span><h2>Quick sites</h2></div><button className="quick-edit" onClick={() => setEditing((value) => !value)}>{editing ? "Done" : "Edit"}</button></div>
     {editing && <form className="quick-site-form" onSubmit={addSite}><input aria-label="Site name" placeholder="Site name" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={32} /><input aria-label="Site URL" placeholder="example.com" value={url} onChange={(event) => setUrl(event.target.value)} /><button type="submit" disabled={sites.length >= 12}>Add site</button></form>}
@@ -70,10 +67,9 @@ export function QuickSites() {
       return <div className="quick-site-wrap" key={site.url}><Link prefetch={false} className="site-card glass-panel" href={`/browser?url=${encodeURIComponent(site.url)}`}><span className="site-glyph">{site.title[0]?.toUpperCase()}</span><span className="site-copy"><strong>{site.title}</strong><small>{host}</small></span><span className="site-arrow">↗</span></Link>{editing && <button className="quick-remove" aria-label={`Remove ${site.title}`} onClick={() => save(sites.filter((entry) => entry.url !== site.url))}>×</button>}</div>;
     })}</div>
     <section className={`adult-sites${adultEnabled ? " adult-sites-enabled" : ""}`} aria-label="18+ sites">
-      <div className="adult-sites-heading"><div><span className="adult-label">18+ · ADULT CONTENT</span><h3>R18 sites</h3></div><button className="adult-toggle" onClick={() => adultEnabled ? (localStorage.removeItem("sonsisearch:r18"), setAdultEnabled(false)) : setAgePrompt(true)}>{adultEnabled ? "R18 ON" : "18+ Unlock"}</button></div>
-      <div className="adult-sites-grid">{ADULT_SITES.map((site) => <button className="adult-site-button" key={site.url} onClick={() => adultEnabled ? (window.location.href = `/browser?url=${encodeURIComponent(site.url)}`) : setAgePrompt(true)}>{site.title}<span>↗</span></button>)}</div>
-      {!adultEnabled && <p className="adult-note">成人向けサイトへのリンクです。18歳以上の方のみ確認後に開けます。</p>}
-      {agePrompt && <div className="age-prompt" role="dialog" aria-modal="true" aria-label="Age confirmation"><div className="age-prompt-card"><span className="adult-label">18+ AGE CHECK</span><h3>18歳以上ですか？</h3><p>成人向けコンテンツへのリンクを有効にします。</p><div><button onClick={() => setAgePrompt(false)}>キャンセル</button><button className="adult-confirm" onClick={enableAdult}>18歳以上です</button></div></div></div>}
+      <div className="adult-sites-heading"><div><span className="adult-label">18+ · ADULT CONTENT</span><h3>R18 sites</h3></div><Link className="adult-toggle" href="/settings">{adultEnabled ? "R18 ON · Settings" : "Enable in Settings"}</Link></div>
+      <div className="adult-sites-grid">{ADULT_SITES.map((site) => <button className={`adult-site-button${adultEnabled ? "" : " is-locked"}`} key={site.url} onClick={() => adultEnabled ? (window.location.href = `/browser?url=${encodeURIComponent(site.url)}`) : router.push("/settings")} aria-disabled={!adultEnabled}>{site.title}<span>{adultEnabled ? "↗" : "🔒"}</span></button>)}</div>
+      {!adultEnabled && <p className="adult-note">成人向けリンクは設定でR18モードを有効にすると開けます。</p>}
     </section>
   </section>;
 }

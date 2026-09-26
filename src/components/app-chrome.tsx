@@ -8,11 +8,23 @@ const links = [["⌂", "Home", "/"], ["⌕", "Search", "/search"], ["◫", "Brow
 export function AppChrome({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
-    const theme = localStorage.getItem("sonsisearch:theme") || "dark";
-    document.documentElement.dataset.theme = theme;
+    const applyTheme = () => {
+      const preference = localStorage.getItem("sonsisearch:theme") || "system";
+      const theme = preference === "light" || preference === "dark"
+        ? preference
+        : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.dataset.theme = theme;
+      const color = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+      if (color) color.content = theme === "light" ? "#f3f6fc" : "#0b1020";
+    };
+    applyTheme();
     document.documentElement.dataset.r18 = localStorage.getItem("sonsisearch:r18") === "enabled" ? "true" : "false";
-    const color = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if (color) color.content = theme === "light" ? "#edf2fa" : "#0b1020";
+    const colorPreference = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystemThemeChange = () => {
+      if (!localStorage.getItem("sonsisearch:theme") || localStorage.getItem("sonsisearch:theme") === "system") applyTheme();
+    };
+    colorPreference.addEventListener("change", onSystemThemeChange);
+    return () => colorPreference.removeEventListener("change", onSystemThemeChange);
   }, []);
   return <div className="app-frame">
     <header className="app-header">
