@@ -13,5 +13,8 @@
 @media(max-width:390px){.app-header{padding:0 11px;gap:8px}.menu-trigger{width:36px}.brand{font-size:14px;gap:7px}.header-browser{padding:8px 9px;font-size:12px}.searchbox{min-height:60px;padding-left:15px;gap:8px}.search-submit{width:43px;height:43px}.browser-toolbar{margin-left:5px;margin-right:5px;gap:2px;padding:5px}.browser-control{width:31px;height:37px;font-size:18px}.browser-controls{gap:0}.address-form{padding-left:7px;gap:5px}.address-form input{font-size:11px}.address-lock{font-size:16px}.bookmark-control{width:29px}.browser-menu-wrap>.browser-control{width:28px}.site-glyph{width:31px;height:31px}.site-card{gap:8px}}
 .settings-select{max-width:170px;background:var(--surface);color:var(--ink);cursor:pointer}.settings-select option{color:#111;background:#fff}
 @media(max-width:720px){.app-header,.searchbox,.glass-panel{backdrop-filter:none;-webkit-backdrop-filter:none}.site-card{box-shadow:none}}
+.brand{gap:0}.brand-logo{display:block;width:164px;height:66px;border-radius:8px;background:#fff url("/sonsisearch-logo.jpg") center/100% 100% no-repeat}.hero-orbit{border:0;background:#164de8 url("/icons/sonsisearch-icon-192.png") center/112% no-repeat;box-shadow:none;transform:none}.hero-orbit span{display:none}
+@media(max-width:720px){.brand-logo{width:136px;height:54px}.hero-orbit{width:54px;height:54px}}
+@media(max-width:390px){.brand-logo{width:120px;height:48px}}
 @media(min-width:1300px){.browser-toolbar{margin-left:36px;margin-right:36px}.home{padding-top:12vh}.recent-section{margin-top:10vh}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}

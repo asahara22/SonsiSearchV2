@@ -1,5 +1,5 @@
-const VERSION = "sonsisearch-shell-v1";
-const SHELL = ["/", "/offline.html", "/icons/icon-192.svg", "/icons/icon-512.svg"];
+const VERSION = "sonsisearch-shell-v2";
+const SHELL = ["/", "/offline.html", "/sonsisearch-logo.jpg", "/icons/sonsisearch-icon-192.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));

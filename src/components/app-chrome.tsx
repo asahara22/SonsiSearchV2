@@ -16,7 +16,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
   return <div className="app-frame">
     <header className="app-header">
       <button className="icon-button menu-trigger" aria-label="Open navigation" onClick={() => setOpen(true)}>☰</button>
-      <Link prefetch={false} className="brand" href="/"><span className="brand-mark">◉</span><span>Sonsi<span className="brand-accent">Search</span> V2</span></Link>
+      <Link prefetch={false} className="brand" href="/" aria-label="SonsiSearch V2 home"><span className="brand-logo" aria-hidden="true" /></Link>
       <Link prefetch={false} className="header-browser" href="/browser">Browser <span>↗</span></Link>
     </header>
     <div className="app-content">{children}</div>
