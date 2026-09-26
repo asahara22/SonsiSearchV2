@@ -22,6 +22,7 @@
     set: (k, v) => localStorage.setItem("halcyon:" + k, v),
     del: (k) => localStorage.removeItem("halcyon:" + k),
   };
+  const transportAtStartup = localStorage.getItem("halcyon:transport") === "bare" ? "bare" : "wisp";
 
   // Tiny transient toast (inline-styled so it needs no CSS).
   let toastEl = null, toastT = 0;
@@ -148,25 +149,38 @@
         return renderDiagnostics();
       }
     } catch { setDiagnostic("proxy-http", "failed", "Proxyへ接続できません。端末のフィルターやネットワーク設定を確認してください"); }
-    let wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/wisp/`;
-    const savedWispUrl = localStorage.getItem("halcyon:wisp");
-    if (savedWispUrl) {
+    const transportMode = store.get("transport", "wisp");
+    if (transportMode === "bare") {
+      setDiagnostic("transport-mode", "ok", "Bare HTTP方式を選択中。通常のページ通信ではWispを使いません");
       try {
-        const configured = new URL(savedWispUrl);
-        if (["ws:", "wss:"].includes(configured.protocol)) wsUrl = configured.href;
-      } catch { /* The runtime will report an invalid saved Wisp URL. */ }
+        const response = await fetch("/bare/", { cache: "no-store", signal: AbortSignal.timeout(8000) });
+        const manifest = response.ok ? await response.json() : null;
+        const available = Boolean(manifest?.versions?.includes("v3"));
+        setDiagnostic("bare-http", available ? "ok" : "failed", available ? "Bare ServerへHTTPSで接続できました" : `Bare Serverが利用できません (HTTP ${response.status})。RenderのHALCYON_PASSWORD設定を確認してください`);
+        setDiagnostic("wisp-websocket", "ok", "Bare方式では通常のページ通信にWispは不要です");
+      } catch { setDiagnostic("bare-http", "failed", "Bare HTTP接続に失敗しました。端末フィルターやRender側のBare設定を確認してください"); }
+    } else {
+      setDiagnostic("transport-mode", "ok", "Wisp方式を選択中。閲覧内容のTLSはブラウザ内で処理します");
+      let wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/wisp/`;
+      const savedWispUrl = localStorage.getItem("halcyon:wisp");
+      if (savedWispUrl) {
+        try {
+          const configured = new URL(savedWispUrl);
+          if (["ws:", "wss:"].includes(configured.protocol)) wsUrl = configured.href;
+        } catch { /* The runtime will report an invalid saved Wisp URL. */ }
+      }
+      try {
+        const wsResult = await new Promise((resolve) => {
+          let settled = false; const finish = (ok, detail) => { if (settled) return; settled = true; clearTimeout(timer); try { socket.close(); } catch {} resolve({ ok, detail }); };
+          const timer = setTimeout(() => finish(false, "Wisp WebSocketが5秒以内に応答しません（端末フィルターが原因の可能性）"), 5000);
+          let socket;
+          try { socket = new WebSocket(wsUrl, "wisp-v2"); } catch { return finish(false, "WebSocketを開始できません"); }
+          socket.addEventListener("open", () => finish(true, "Wisp WebSocketに接続できました"), { once: true });
+          socket.addEventListener("error", () => finish(false, "Wisp接続を確立できません。端末フィルター、ネットワーク、Render側の応答のいずれかを確認してください"), { once: true });
+        });
+        setDiagnostic("wisp-websocket", wsResult.ok ? "ok" : "failed", wsResult.detail);
+      } catch { setDiagnostic("wisp-websocket", "failed", "Wisp WebSocketの確認に失敗しました"); }
     }
-    try {
-      const wsResult = await new Promise((resolve) => {
-        let settled = false; const finish = (ok, detail) => { if (settled) return; settled = true; clearTimeout(timer); try { socket.close(); } catch {} resolve({ ok, detail }); };
-        const timer = setTimeout(() => finish(false, "Wisp WebSocketが5秒以内に応答しません（端末フィルターが原因の可能性）"), 5000);
-        let socket;
-        try { socket = new WebSocket(wsUrl, "wisp-v2"); } catch { return finish(false, "WebSocketを開始できません"); }
-        socket.addEventListener("open", () => finish(true, "Wisp WebSocketに接続できました"), { once: true });
-        socket.addEventListener("error", () => finish(false, "Wisp接続を確立できません。端末フィルター、ネットワーク、Render側の応答のいずれかを確認してください"), { once: true });
-      });
-      setDiagnostic("wisp-websocket", wsResult.ok ? "ok" : "failed", wsResult.detail);
-    } catch { setDiagnostic("wisp-websocket", "failed", "Wisp WebSocketの確認に失敗しました"); }
     if (window.Halcyon) setDiagnostic("halcyon-runtime", "ok", "Scramjet / Halcyon runtimeを読み込み済みです");
     const failed = Object.values(diagnosticStages).filter((item) => item.state === "failed").length;
     $("#diag-summary").textContent = failed ? `${failed}項目で問題を検出しました。結果を端末管理者に共有してください。` : "基本接続を確認しました。ページ読込中の場合はService Worker / runtimeの項目も確認してください。";
@@ -538,6 +552,7 @@
 
   // ---- Settings ----
   const wispIn = $("#set-wisp");
+  const transportSelect = $("#set-transport");
   const cloakTitle = $("#set-cloak-title");
   const aboutBlank = $("#set-aboutblank");
   const panicUrl = $("#set-panic-url");
@@ -594,6 +609,30 @@
       store.set("cleanurls", cleanurls.checked ? "1" : "0")
     );
   }
+
+  const updateTransportDisclosure = () => {
+    const selectedMode = store.get("transport", "wisp");
+    const bareInUse = transportAtStartup === "bare";
+    const bareSelected = selectedMode === "bare";
+    $("#transport-warning").hidden = !(bareInUse || bareSelected);
+    const activeCopy = bareInUse
+      ? "Bare方式ではRenderサービスがHTTPSを終端するため、閲覧内容やサイトのログイン情報を処理できます。履歴とブックマークは引き続きこの端末内に保存されます。"
+      : "Wisp方式ではTLS通信をブラウザ側で行うため、RenderサービスはHTTPSサイトの内容を読み取れません。ログイン情報はこのブラウザに保存され、履歴とブックマークも端末内に残ります。";
+    $("#session-privacy-copy").textContent = selectedMode === transportAtStartup
+      ? activeCopy
+      : `${activeCopy} 選択した接続方式は再読み込み後に有効になります。`;
+  };
+  transportSelect.value = store.get("transport", "wisp") === "bare" ? "bare" : "wisp";
+  updateTransportDisclosure();
+  transportSelect.addEventListener("change", () => {
+    if (transportSelect.value === "bare" && !window.confirm("Bare方式へ切り替えますか？\n\n閲覧ページの内容やサイトのログイン情報をRenderサービスが処理できるようになります。接続方法を変更することについて、ネットワーク管理者の許可も確認してください。")) {
+      transportSelect.value = store.get("transport", "wisp");
+      return;
+    }
+    store.set("transport", transportSelect.value);
+    updateTransportDisclosure();
+    alert("接続方式を保存しました。ページを再読み込みすると適用されます。");
+  });
 
   wispIn.value = store.get("wisp", "");
   cloakTitle.value = store.get("cloakTitle", "");

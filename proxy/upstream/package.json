@@ -31,10 +31,13 @@
   },
   "type": "module",
   "dependencies": {
+    "@mercuryworkshop/bare-transport": "1.0.0",
     "@mercuryworkshop/libcurl-transport": "^2.0.5",
     "@mercuryworkshop/scramjet": "https://github.com/MercuryWorkshop/scramjet/releases/download/latest/mercuryworkshop-scramjet-2.0.67-alpha.2.tgz",
     "@mercuryworkshop/scramjet-controller": "https://github.com/MercuryWorkshop/scramjet/releases/download/latest/mercuryworkshop-scramjet-controller-0.0.14.tgz",
     "@mercuryworkshop/wisp-js": "^0.5.0",
+    "@tomphttp/bare-server-node": "2.0.6",
+    "ipaddr.js": "2.5.0",
     "patch-package": "^8.0.0"
   }
 }

@@ -39,6 +39,12 @@ If a proxied page stays on the loading screen, select **Connection diagnostics**
 
 The unified Halcyon app provides the SonsiSearch home, search, and browser UI. Search results open in the same Scramjet browser service; the original-site action opens a normal external tab. History and bookmarks are stored locally in this browser profile.
 
+### Optional Bare HTTP transport
+
+In Settings, the browser can switch from the default **Wisp** transport to **Bare**. Bare sends ordinary HTTPS requests to this Render service instead of using Wisp for normal page requests. Some target sites' own WebSocket features can still require WebSocket access. The project includes `@mercuryworkshop/bare-transport` and `@tomphttp/bare-server-node`; both are served by the same Docker service. This may help on networks where WebSockets are unavailable, but it will not work if the network blocks the service or its Bare endpoint, and it is not permission to bypass a managed network's policy. Get administrator approval before using it on a managed device.
+
+Bare changes the privacy model: TLS to target sites terminates on the Render service, which can process page contents and site login data. Wisp remains the default and keeps target-site TLS in the browser. Switching to Bare requires an explicit confirmation in Settings. Bare also requires `HALCYON_PASSWORD`; requests are restricted to HTTP/HTTPS/WebSocket web ports, block local/private destinations, are rate limited, and responses are capped at 64 MiB. Large uploads are limited when a `Content-Length` is supplied.
+
 The app includes a standalone PWA manifest, maskable icons, an offline page, and a small shell service worker. The service worker does not cache search API responses or proxied page content. Install it from the browser's native install or home-screen action; supported browsers may also show an install button in Settings.
 
 ## Security and license
@@ -47,7 +53,7 @@ The app includes a standalone PWA manifest, maskable icons, an offline page, and
 - Browsing history and bookmarks are stored locally in browser storage. Do not record proxied page contents, cookies, or authorization headers; no browsing data is sent to Convex.
 - The search route applies a per-process limit of 20 requests per IP per minute and caps provider responses at 1 MB. This in-memory limit is a basic abuse barrier, not a globally consistent quota across serverless instances; set provider-side quotas and edge rate limiting before public launch.
 - Only open HTTP/HTTPS result URLs. Proxy cookies and its service worker stay on this service's origin and are protected by the passphrase gate.
-- Halcyon and the selected Scramjet 2.x dependencies use AGPL-3.0 family licenses. A modified network service must provide users the corresponding source under the applicable license terms. Keep upstream copyright notices and LICENSE files and publish the exact deployed source. Obtain legal review if these obligations are not accepted.
+- Halcyon and the selected Scramjet 2.x dependencies use AGPL-3.0 family licenses. The optional Bare Server package is GPL-3.0 and Bare transport is LGPL-3.0. A modified network service must provide users the corresponding source under the applicable license terms. Keep upstream copyright notices and LICENSE files and publish the exact deployed source. Obtain legal review if these obligations are not accepted.
 
 ## Commands
 

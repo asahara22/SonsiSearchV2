@@ -130,7 +130,7 @@
         <section class="view" data-view="settings">
           <header class="view-head">
             <h2>Settings</h2>
-            <p>Everything lives in your browser — nothing is sent anywhere.</p>
+            <p>Settings, history, and bookmarks stay in this browser. Proxy traffic uses the connection method you select below.</p>
           </header>
           <div class="settings">
             <div class="set-card">
@@ -217,6 +217,19 @@
 
             <div class="set-card">
               <label class="field">
+                <span class="field-label">Browser connection method</span>
+                <div class="select-wrap">
+                  <select id="set-transport">
+                    <option value="wisp">Wisp — browser-side TLS (recommended)</option>
+                    <option value="bare">Bare — HTTPS requests handled by server</option>
+                  </select>
+                </div>
+                <span class="field-hint">Bare uses HTTPS requests instead of Wisp for normal page requests. Some sites' own WebSocket features may still need WebSocket access. When selected, the Render service can read page contents and site login data. Use only if you accept that privacy change and your network administrator permits it. Reload to apply.</span>
+              </label>
+            </div>
+
+            <div class="set-card">
+              <label class="field">
                 <span class="field-label">Wisp server</span>
                 <input id="set-wisp" type="text" placeholder="wss://this-site/wisp/" />
                 <span class="field-hint">Leave blank to use this site's own server.</span>
@@ -255,7 +268,7 @@
             <div class="set-card">
               <div class="field">
                 <span class="field-label">Session &amp; privacy</span>
-                <span class="field-hint">
+                <span class="field-hint" id="session-privacy-copy">
                   Traffic is end-to-end encrypted — the server relays your requests but can't read
                   the contents of HTTPS sites. Logins live only in this browser. Wiping signs you out
                   of every proxied site and clears all traces from this device.
@@ -310,6 +323,7 @@
             <button class="tb-btn" id="tb-newtab" title="Open in new tab"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/></svg></button>
             <button class="tb-btn" id="tb-home" title="Home"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg></button>
           </div>
+          <div class="transport-warning" id="transport-warning" hidden>プライバシー設定: Bare方式ではRenderサービスが閲覧内容とサイトのログイン情報を処理できます。</div>
           <div class="frame-wrap">
             <div id="frames" class="frames"></div>
             <div class="frame-loader" id="frame-loader">

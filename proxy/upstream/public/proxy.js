@@ -339,16 +339,24 @@
       const sw = await stage("service-worker", registerSw);
       await stage("scramjet-assets", () => loadScript(RUNTIME.scramjet));
       await stage("controller-assets", () => loadScript(RUNTIME.controllerApi));
-      await stage("transport-assets", () => loadScript(RUNTIME.libcurl));
+      const useBareTransport = localStorage.getItem("halcyon:transport") === "bare";
+      const transportAssets = await stage("transport-assets", async () => {
+        if (useBareTransport) return import("/baremod/index.mjs");
+        await loadScript(RUNTIME.libcurl);
+        return window.LibcurlTransport;
+      });
 
       const { Controller, ManagedPlugin, config } = window.$scramjetController;
       config.scramjetPath = RUNTIME.scramjet;
       config.injectPath = RUNTIME.controllerInject;
       config.wasmPath = RUNTIME.wasm;
 
-      const transport = new window.LibcurlTransport.LibcurlClient({
-        wisp: wispUrl(),
-      });
+      const transport = useBareTransport
+        ? new transportAssets.default(new URL("/bare/", location.href))
+        : new transportAssets.LibcurlClient({ wisp: wispUrl() });
+      reportDiagnostic("transport-mode", "ok", useBareTransport
+        ? "Bare HTTP transport is active; destination TLS is handled by the server"
+        : "Wisp with browser-side TLS is active");
 
       // NOTE: do NOT disable Scramjet's `sourcemaps` flag to "save CPU" — it's
       // not debug-only. It backs the scramtag rewrite-map that makes

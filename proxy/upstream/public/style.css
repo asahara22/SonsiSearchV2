@@ -762,6 +762,7 @@ kbd {
 .diagnostic-report { display: block; width: min(100%,1040px); margin: 0 auto; padding: 10px; border: 1px solid var(--stroke); border-radius: 10px; background: rgba(0,0,0,.22); color: var(--muted); font: 11px/1.5 ui-monospace,Consolas,monospace; resize: vertical; }
 .diagnostic-tools button:disabled { opacity: .6; cursor: wait; }
 .frame-loader .wipe-btn { min-height: 40px; padding: 0 16px; border: 1px solid var(--stroke); border-radius: 11px; background: var(--glass); color: var(--text); cursor: pointer; }
+.transport-warning { padding: 8px 14px; border-bottom: 1px solid rgba(180,110,30,.25); background: rgba(255,190,80,.16); color: var(--text); font-size: 11px; line-height: 1.5; }
 @media(max-width:680px){.search-result{padding:14px}.search-result h3{font-size:16px}.diagnostic-tools button{flex:1}.diagnostic-item strong{flex-wrap:wrap}}
 
 /* Proxy chrome + loader for daylight */

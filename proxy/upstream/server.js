@@ -7,6 +7,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { server as wisp, logging } from "@mercuryworkshop/wisp-js/server";
 
 const require = createRequire(import.meta.url);
+const ipaddr = require("ipaddr.js");
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const num = (env, d) => {
   const n = parseInt(process.env[env], 10);
@@ -99,6 +100,55 @@ const DENY_HOSTS = [
     } catch {}
   });
 
+// Optional HTTP transport for networks that do not permit Wisp WebSockets.
+// Bare terminates destination TLS on this server, so this route is available
+// only behind the configured password gate. Keep the same local-network and
+// metadata protections and constrain it to ordinary web ports.
+const { createBareServer } = require("@tomphttp/bare-server-node");
+const bareServer = createBareServer("/bare/", {
+  blockLocal: true,
+  legacySupport: false,
+  logErrors: false,
+  connectionLimiter: { maxConnectionsPerIP: 600, windowDuration: 60, blockDuration: 60 },
+  filterRemote(remote) {
+    if (!["http:", "https:", "ws:", "wss:"].includes(remote.protocol)) throw new Error("Only web destinations are allowed");
+    const port = Number(remote.port || (["https:", "wss:"].includes(remote.protocol) ? 443 : 80));
+    if (![80, 443].includes(port) || !ALLOWED_PORTS.includes(port)) throw new Error("Destination port is not allowed");
+    const hostname = remote.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (ipaddr.isValid(hostname) && ipaddr.parse(hostname).range() !== "unicast") throw new Error("Destination IP is not public");
+    if (DENY_HOSTS.some((pattern) => pattern.test(hostname))) throw new Error("Destination host is not allowed");
+  },
+});
+const bareLimiter = makeLimiter(num("HALCYON_RL_BARE", 900), 60_000);
+const BARE_MAX_REQUEST_BYTES = num("HALCYON_BARE_MAX_REQUEST_BYTES", 8 * 1024 * 1024);
+const BARE_MAX_RESPONSE_BYTES = num("HALCYON_BARE_MAX_RESPONSE_BYTES", 64 * 1024 * 1024);
+
+function capBareResponse(res) {
+  let sent = 0;
+  let exceeded = false;
+  res.once("close", () => {
+    if (exceeded) console.warn("Bare response was cut off at the configured size limit.");
+  });
+  const originalWrite = res.write.bind(res);
+  const originalEnd = res.end.bind(res);
+  const count = (chunk, encoding) => {
+    if (chunk == null) return false;
+    sent += typeof chunk === "string" ? Buffer.byteLength(chunk, typeof encoding === "string" ? encoding : "utf8") : chunk.byteLength ?? chunk.length ?? 0;
+    if (sent <= BARE_MAX_RESPONSE_BYTES) return false;
+    exceeded = true;
+    res.destroy();
+    return true;
+  };
+  res.write = function (chunk, encoding, callback) {
+    if (count(chunk, encoding)) return false;
+    return originalWrite(chunk, encoding, callback);
+  };
+  res.end = function (chunk, encoding, callback) {
+    if (count(chunk, encoding)) return res;
+    return originalEnd(chunk, encoding, callback);
+  };
+}
+
 Object.assign(wisp.options, {
   allow_private_ips: false,
   allow_loopback_ips: false,
@@ -188,6 +238,7 @@ function allowedDomain(host) {
 const scramjetDist = require("@mercuryworkshop/scramjet/path").scramjetPath;
 const controllerDist = dirname(require.resolve("@mercuryworkshop/scramjet-controller"));
 const libcurlDist = dirname(require.resolve("@mercuryworkshop/libcurl-transport"));
+const bareTransportDist = dirname(require.resolve("@mercuryworkshop/bare-transport"));
 
 const runtimeFiles = {
   "/scram/scramjet.js": join(scramjetDist, "scramjet.js"),
@@ -196,6 +247,7 @@ const runtimeFiles = {
   "/scram/controller.inject.js": join(controllerDist, "controller.inject.js"),
   "/scram/controller.sw.js": join(controllerDist, "controller.sw.js"),
   "/scram/libcurl.js": join(libcurlDist, "index.js"),
+  "/baremod/index.mjs": join(bareTransportDist, "index.mjs"),
 };
 
 const MIME = {
@@ -766,6 +818,27 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // Authenticated Bare HTTP transport fallback. Wisp remains the normal
+    // transport; this endpoint is used only when a user selects Bare.
+    if (bareServer.shouldRoute(req)) {
+      if (!AUTH_TOKEN) {
+        res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
+        return res.end("Bare transport requires HALCYON_PASSWORD to be configured.");
+      }
+      if (!bareLimiter(ip)) {
+        res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8", "Retry-After": "60" });
+        return res.end("Bare request limit reached.");
+      }
+      const contentLength = Number(req.headers["content-length"] || 0);
+      if (Number.isFinite(contentLength) && contentLength > BARE_MAX_REQUEST_BYTES) {
+        res.writeHead(413, { "Content-Type": "text/plain; charset=utf-8" });
+        return res.end("Bare request body exceeds the configured limit.");
+      }
+      capBareResponse(res);
+      await bareServer.routeRequest(req, res);
+      return;
+    }
+
     // Runtime files (scramjet / controller / transport).
     if (Object.prototype.hasOwnProperty.call(runtimeFiles, path)) {
       return sendFile(res, runtimeFiles[path], { immutable: true });
@@ -854,6 +927,15 @@ server.on("upgrade", (req, socket, head) => {
   if (AUTH_TOKEN && !isAuthed(req)) {
     socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
     socket.destroy();
+    return;
+  }
+  if (bareServer.shouldRoute(req)) {
+    if (!AUTH_TOKEN) {
+      socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    bareServer.routeUpgrade(req, socket, head).catch(() => socket.destroy());
     return;
   }
   if (!req.url.endsWith("/wisp/")) {
