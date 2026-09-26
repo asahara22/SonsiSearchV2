@@ -1,5 +1,6 @@
 import { SearchForm } from "@/components/search-form";
 import { RecentSites } from "@/components/recent-sites";
+import { QuickSites } from "@/components/quick-sites";
 
 export default function HomePage() {
   return (
@@ -10,6 +11,7 @@ export default function HomePage() {
       <p className="tagline">見つけて、そのまま読む。</p>
       <SearchForm />
       <p className="hint">Enter a search or a web address to get started</p>
+      <QuickSites />
       <RecentSites />
     </main>
   );

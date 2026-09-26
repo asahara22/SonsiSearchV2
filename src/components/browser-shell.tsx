@@ -3,12 +3,13 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseAddressOrSearch } from "@/lib/address";
+import { buildSearchUrl, getSearchEngine } from "@/lib/search-engine";
 
 type SavedSite = { title: string; url: string; visited: number };
 type DiagnosticCheck = { id: string; label: string; state: "pending" | "ok" | "warn" | "fail"; detail: string };
 type DiagnosticStage = { state: "running" | "ok" | "failed"; detail: string; at: number };
 
-export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; proxyOrigin: string }) {
+export function BrowserShell({ initialUrl, proxyOrigin, incognito }: { initialUrl: string; proxyOrigin: string; incognito: boolean }) {
   const initial = parseAddressOrSearch(initialUrl);
   const [input, setInput] = useState(initial.kind === "url" ? initial.value : "");
   const [target, setTarget] = useState(initial.kind === "url" ? initial.value : "");
@@ -74,15 +75,15 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
         setTarget(url);
         setInput(url);
         setError("");
-        rememberVisit(url);
-        const route = `/browser?url=${encodeURIComponent(url)}`;
+        if (!incognito) rememberVisit(url);
+        const route = `/browser?url=${encodeURIComponent(url)}${incognito ? "&incognito=1" : ""}`;
         if (`${window.location.pathname}${window.location.search}` !== route) router.replace(route);
-        setIsBookmarked(readBookmarks().some((item) => item.url === url));
+        setIsBookmarked(!incognito && readBookmarks().some((item) => item.url === url));
       }
     };
     window.addEventListener("message", onMessage);
     return () => { window.removeEventListener("message", onMessage); if (loadTimer.current) clearTimeout(loadTimer.current); };
-  }, [proxy, router]);
+  }, [incognito, proxy, router]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -116,12 +117,15 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
     setError("");
     const parsed = parseAddressOrSearch(input);
     if (parsed.kind === "invalid") { setError("Credentials in a URL are not supported."); return; }
-    if (parsed.kind === "search") { router.push(`/search?q=${encodeURIComponent(parsed.value)}`); return; }
+    if (parsed.kind === "search") {
+      if (!incognito) { router.push(`/search?q=${encodeURIComponent(parsed.value)}`); return; }
+      parsed.value = buildSearchUrl(parsed.value, getSearchEngine());
+    }
     setTarget(parsed.value);
     setInput(parsed.value);
     setLoading(true);
     setError("");
-    router.replace(`/browser?url=${encodeURIComponent(parsed.value)}`);
+    router.replace(`/browser?url=${encodeURIComponent(parsed.value)}${incognito ? "&incognito=1" : ""}`);
   }
 
   function updateDiagnostic(id: string, state: DiagnosticCheck["state"], detail: string) {
@@ -265,7 +269,7 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
   }
 
   function toggleBookmark() {
-    if (!target) return;
+    if (!target || incognito) return;
     const current = readBookmarks();
     if (current.some((item) => item.url === target)) {
       localStorage.setItem("sonsisearch:bookmarks", JSON.stringify(current.filter((item) => item.url !== target)));
@@ -292,11 +296,17 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
         {target && <span className="address-domain">{host}</span>}
         <button type="submit" className="address-go" aria-label="Go">→</button>
       </form>
-      <button className={`browser-control bookmark-control${isBookmarked ? " saved" : ""}`} title={isBookmarked ? "Remove bookmark" : "Bookmark this page"} aria-label={isBookmarked ? "Remove bookmark" : "Bookmark this page"} onClick={toggleBookmark}>☆</button>
+      <button className={`browser-control bookmark-control${isBookmarked ? " saved" : ""}`} title={incognito ? "Bookmarks are disabled in a private session" : isBookmarked ? "Remove bookmark" : "Bookmark this page"} aria-label={isBookmarked ? "Remove bookmark" : "Bookmark this page"} disabled={incognito} onClick={toggleBookmark}>☆</button>
+      <button className={`incognito-control${incognito ? " is-active" : ""}`} aria-pressed={incognito} title={incognito ? "End private session" : "Start private session"} onClick={() => {
+        const next = !incognito;
+        const query = target ? `?url=${encodeURIComponent(target)}&incognito=${next ? "1" : "0"}` : `?incognito=${next ? "1" : "0"}`;
+        router.replace(`/browser${query}`);
+      }}>{incognito ? "◉ Private" : "◉"}</button>
       <div className="browser-menu-wrap"><button className="browser-control" aria-label="Browser menu" title="Menu" onClick={() => setMenuOpen((value) => !value)}>···</button>
         {menuOpen && <div className="browser-menu glass-panel">{[["Home", "/"], ["History", "/history"], ["Bookmarks", "/bookmarks"]].map(([label, href]) => <a href={href} key={href} onClick={() => setMenuOpen(false)}>{label}</a>)}<button onClick={() => { setMenuOpen(false); void runDiagnostics(); }}>Connection diagnostics</button>{target && <button onClick={() => { window.open(target, "_blank", "noopener,noreferrer"); setMenuOpen(false); }}>Open original ↗</button>}</div>}
       </div>
     </div>
+    {incognito && <div className="incognito-banner">プライベートセッション：このアプリの履歴には保存されません。Proxyや接続先には通信が見えます。</div>}
     <div className="browser-progress"><span className={loading ? "active" : ""} /></div>
       {target ? <div className="web-viewport"><div className="browser-wait" hidden={!loading}><span className="loading-orbit"/><span>Connecting securely…</span><button className="wait-diagnostics" onClick={() => void runDiagnostics()}>Diagnose</button></div>{proxy && <iframe ref={frameRef} className="browser-frame" title="Web page" src={`${proxy}/proxy`} onLoad={() => setFrameLoaded(true)} allow="clipboard-read; clipboard-write; fullscreen; autoplay; encrypted-media; picture-in-picture" referrerPolicy="no-referrer" />}{error && <ConnectionError error={error} target={target} retry={() => { setError(""); setLoading(true); startLoadTimeout(); send("sonsisearch:navigate", target); }} back={() => router.back()} diagnose={() => void runDiagnostics()} />}</div> : error ? <ConnectionError error={error} back={() => router.back()} diagnose={() => void runDiagnostics()} /> : <section className="browser-welcome"><div className="welcome-emblem">◉</div><span className="eyebrow">SONSIPROXY · READY</span><h1>Where to next?</h1><p>Enter a web address or search the open web.</p><button className="action-button" onClick={() => router.push("/")}>⌂ <span>Go to search</span></button><button className="action-button" onClick={() => void runDiagnostics()}>ⓘ <span>Connection diagnostics</span></button></section>}
     {diagnosticsOpen && <DiagnosticsPanel checks={diagnosticChecks} stages={diagnosticStages} running={diagnosticsRunning} copyMessage={copyMessage} report={getDiagnosticReport()} rerun={() => void runDiagnostics()} copy={() => void copyDiagnosticReport()} close={() => setDiagnosticsOpen(false)} />}

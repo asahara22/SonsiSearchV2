@@ -1,4 +1,4 @@
-const VERSION = "sonsisearch-shell-v3";
+const VERSION = "sonsisearch-shell-v4";
 const SHELL = ["/", "/offline.html", "/sonsisearch-logo.png", "/icons/sonsisearch-icon-192.png"];
 
 self.addEventListener("install", (event) => {

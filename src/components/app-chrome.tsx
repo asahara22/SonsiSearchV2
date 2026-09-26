@@ -10,6 +10,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const theme = localStorage.getItem("sonsisearch:theme") || "dark";
     document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.r18 = localStorage.getItem("sonsisearch:r18") === "enabled" ? "true" : "false";
     const color = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     if (color) color.content = theme === "light" ? "#edf2fa" : "#0b1020";
   }, []);
