@@ -3,8 +3,8 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "SonsiSearch",
-    short_name: "SonsiSearch",
+    name: "SonsiSearch V2",
+    short_name: "SonsiSearch V2",
     description: "Search the open web and read in SonsiSearch.",
     start_url: "/",
     scope: "/",

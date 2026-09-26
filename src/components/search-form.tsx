@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseAddressOrSearch } from "@/lib/address";
+import { buildSearchUrl, getSearchEngine } from "@/lib/search-engine";
 
 export function SearchForm({ initialQuery = "", compact = false }: { initialQuery?: string; compact?: boolean }) {
   const [query, setQuery] = useState(initialQuery);
@@ -14,7 +15,7 @@ export function SearchForm({ initialQuery = "", compact = false }: { initialQuer
     if (!value) return;
     const parsed = parseAddressOrSearch(value);
     if (parsed.kind === "url") router.push(`/browser?url=${encodeURIComponent(parsed.value)}`);
-    else if (parsed.kind === "search") router.push(`/search?q=${encodeURIComponent(parsed.value)}`);
+    else if (parsed.kind === "search") router.push(`/browser?url=${encodeURIComponent(buildSearchUrl(parsed.value, getSearchEngine()))}`);
   }
 
   return (

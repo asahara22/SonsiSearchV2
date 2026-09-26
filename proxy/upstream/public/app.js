@@ -2,9 +2,7 @@
 (() => {
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
-  const embedOrigins = Array.isArray(window.HALCYON_EMBED_ORIGINS)
-    ? window.HALCYON_EMBED_ORIGINS
-    : [];
+  const embedOrigins = [...new Set([...(Array.isArray(window.HALCYON_EMBED_ORIGINS) ? window.HALCYON_EMBED_ORIGINS : []), location.origin])];
   const notifyParent = (message) => {
     if (window.parent === window) return;
     for (const origin of embedOrigins) window.parent.postMessage(message, origin);
@@ -85,11 +83,6 @@
         ? `<span class="ico" style="background:${s.color}">${s.label}</span>${s.name}`
         : `<span class="tile" style="background:${s.color}">${s.label}</span><span class="card-name">${s.name}</span>`;
     el.addEventListener("click", () => launch(s.url));
-    // Warm the engine the moment the pointer lands on a tile, so the click
-    // that follows navigates a hot runtime instead of cold-booting it.
-    el.addEventListener("pointerenter", () => Halcyon.preboot().catch(() => {}), {
-      once: true,
-    });
     return el;
   };
   const qlWrap = $("#quicklinks");
@@ -142,7 +135,7 @@
       setDiagnostic("proxy-http", response.ok ? "ok" : "failed", response.ok ? "同じRenderサービスに到達しました" : `HTTP ${response.status}`);
       const authOk = !info.authenticationRequired || info.authenticated;
       setDiagnostic("proxy-auth", authOk ? "ok" : "failed", info.authenticationRequired ? authOk ? "ログイン済みです" : "ログインセッションがありません。いったんロック解除して再確認してください" : "パスワード保護は無効です");
-      setDiagnostic("search-config", info.searchConfigured ? "ok" : "warn", info.searchConfigured ? "検索プロバイダーを設定済みです（キーはサーバー内に保持）" : "検索機能のみ未設定です。Browser / Proxy接続には影響しません。RenderにSEARCH_API_URLとSEARCH_API_KEYを設定すると検索結果を利用できます。");
+      setDiagnostic("search-config", "ok", "検索サイトはSonsiSearchの設定画面で選択できます");
       if (!authOk) {
         setDiagnostic("wisp-websocket", "failed", "Proxyの認証を確認できません。再ログイン後にもう一度診断してください");
         $("#diag-summary").textContent = "ログイン状態を確認できません。まずロック解除して再確認してください。";
@@ -287,32 +280,18 @@
   }
 
   async function searchWeb(query) {
-    const heading = $("#results-query");
-    const status = $("#search-status");
-    const results = $("#search-results");
-    show("results");
-    heading.textContent = `「${query}」の検索結果`;
-    status.textContent = "検索しています…";
-    results.replaceChildren();
+    const urls = {
+      duckduckgo: "https://duckduckgo.com/?q=",
+      startpage: "https://www.startpage.com/sp/search?query=",
+      brave: "https://search.brave.com/search?q=",
+      yahoo: "https://search.yahoo.com/search?p=",
+    };
+    let engine = "duckduckgo";
     try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { headers: { Accept: "application/json" }, cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `検索に失敗しました (${response.status})`);
-      if (!data.results?.length) { status.textContent = "検索結果がありません。"; return; }
-      status.textContent = `${data.results.length}件の検索結果`;
-      for (const item of data.results) {
-        const card = document.createElement("article"); card.className = "search-result";
-        const title = document.createElement("h3");
-        const open = document.createElement("button"); open.type = "button"; open.className = "result-title"; open.textContent = item.title;
-        open.addEventListener("click", () => launch(item.url)); title.appendChild(open);
-        const host = document.createElement("p"); host.className = "search-result-url"; host.textContent = new URL(item.url).hostname;
-        const description = document.createElement("p"); description.textContent = item.description || "";
-        const actions = document.createElement("div"); actions.className = "search-result-actions";
-        const inApp = document.createElement("button"); inApp.type = "button"; inApp.textContent = "SonsiSearchで開く"; inApp.addEventListener("click", () => launch(item.url));
-        const original = document.createElement("a"); original.href = item.url; original.target = "_blank"; original.rel = "noopener noreferrer"; original.textContent = "元サイト ↗";
-        actions.append(inApp, original); card.append(title, host, description, actions); results.appendChild(card);
-      }
-    } catch (error) { status.textContent = error?.message || "検索に失敗しました。"; }
+      const saved = localStorage.getItem("sonsisearch:search-engine");
+      if (saved && Object.prototype.hasOwnProperty.call(urls, saved)) engine = saved;
+    } catch { /* Use DuckDuckGo when browser storage is unavailable. */ }
+    return launch(urls[engine] + encodeURIComponent(query.trim()));
   }
 
   function navigateOrSearch(value) {
@@ -332,19 +311,6 @@
     navigateOrSearch($("#search-input").value);
     $("#search-input").value = "";
   });
-  // Warm the runtime up as soon as the user focuses the box.
-  $("#search-input").addEventListener("focus", () => Halcyon.preboot().catch(() => {}), { once: true });
-  // …and, regardless of how they enter, prewarm once the page goes idle, so the
-  // very first navigation (a tile click, a shortcut) rides a hot SW + controller
-  // instead of paying the full cold-boot (SW register + script loads + WASM
-  // compile + Wisp connect) on the click. preboot() is idempotent, so the
-  // earlier focus/hover warmers just no-op if this already ran.
-  const prewarmIdle = () => Halcyon.preboot().catch(() => {});
-  if ("requestIdleCallback" in window) {
-    requestIdleCallback(prewarmIdle, { timeout: 3000 });
-  } else {
-    setTimeout(prewarmIdle, 1500);
-  }
 
   // Proxy top bar
   $("#tb-form").addEventListener("submit", (e) => {
@@ -589,7 +555,6 @@
     };
     Halcyon.adblockState().then(render);
     adblock.addEventListener("change", () => Halcyon.setAdblock(adblock.checked).then(render));
-    setInterval(() => Halcyon.adblockState().then(render), 1500);
   }
 
   // AI content-farm blocker toggle (server-side blocking, separate list + pref)
@@ -782,20 +747,20 @@
       "Where do you want to go?",
     ];
     let i = 0;
-    setInterval(() => {
-      if (input.value || document.activeElement === input) return;
-      i = (i + 1) % hints.length;
-      input.style.opacity = "0";
-      setTimeout(() => {
-        input.placeholder = hints[i];
-        input.style.opacity = "1";
-      }, 260);
-    }, 4200);
-    input.style.transition = "opacity 0.26s ease";
+    if (!document.documentElement.classList.contains("sonsisearch-embedded")) {
+      setInterval(() => {
+        if (input.value || document.activeElement === input) return;
+        i = (i + 1) % hints.length;
+        input.style.opacity = "0";
+        setTimeout(() => { input.placeholder = hints[i]; input.style.opacity = "1"; }, 260);
+      }, 4200);
+      input.style.transition = "opacity 0.26s ease";
+    }
   })();
 
   // ---- Starfield canvas ----
   (function starfield() {
+    if (document.documentElement.classList.contains("sonsisearch-embedded")) return;
     const canvas = document.getElementById("stars");
     if (!canvas) return;
     const ctx = canvas.getContext("2d");

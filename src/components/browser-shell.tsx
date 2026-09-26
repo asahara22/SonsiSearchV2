@@ -3,17 +3,18 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseAddressOrSearch } from "@/lib/address";
+import { buildSearchUrl, getSearchEngine } from "@/lib/search-engine";
 
 type SavedSite = { title: string; url: string; visited: number };
 type DiagnosticCheck = { id: string; label: string; state: "pending" | "ok" | "warn" | "fail"; detail: string };
 type DiagnosticStage = { state: "running" | "ok" | "failed"; detail: string; at: number };
 
-export function BrowserShell({ initialUrl }: { initialUrl: string }) {
+export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; proxyOrigin: string }) {
   const initial = parseAddressOrSearch(initialUrl);
   const [input, setInput] = useState(initial.kind === "url" ? initial.value : "");
   const [target, setTarget] = useState(initial.kind === "url" ? initial.value : "");
-  const [error, setError] = useState(initial.kind === "invalid" ? "Credentials in a URL are not supported." : getProxyUrl() ? "" : "Proxy service is not configured. Set NEXT_PUBLIC_PROXY_URL to the Halcyon HTTPS origin.");
-  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(initial.kind === "invalid" ? "Credentials in a URL are not supported." : proxyOrigin ? "" : "Proxy service is not configured.");
+  const [loading, setLoading] = useState(initial.kind === "url");
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -29,7 +30,7 @@ export function BrowserShell({ initialUrl }: { initialUrl: string }) {
   const appPingResolver = useRef<((responded: boolean) => void) | null>(null);
   const [frameReady, setFrameReady] = useState(false);
   const router = useRouter();
-  const proxy = getProxyUrl();
+  const proxy = proxyOrigin.replace(/\/$/, "");
   const send = useCallback((type: string, url?: string) => {
     frameRef.current?.contentWindow?.postMessage({ type, ...(url ? { url } : {}) }, proxy);
   }, [proxy]);
@@ -43,7 +44,7 @@ export function BrowserShell({ initialUrl }: { initialUrl: string }) {
   const initialSearch = initial.kind === "search" ? initial.value : "";
 
   useEffect(() => {
-    if (initialSearch && initialUrl) router.replace(`/search?q=${encodeURIComponent(initialSearch)}`);
+    if (initialSearch && initialUrl) router.replace(`/browser?url=${encodeURIComponent(buildSearchUrl(initialSearch, getSearchEngine()))}`);
   }, [initialSearch, initialUrl, router]);
 
   useEffect(() => {
@@ -116,7 +117,7 @@ export function BrowserShell({ initialUrl }: { initialUrl: string }) {
     setError("");
     const parsed = parseAddressOrSearch(input);
     if (parsed.kind === "invalid") { setError("Credentials in a URL are not supported."); return; }
-    if (parsed.kind === "search") { router.push(`/search?q=${encodeURIComponent(parsed.value)}`); return; }
+    if (parsed.kind === "search") { const url = buildSearchUrl(parsed.value, getSearchEngine()); setTarget(url); setInput(url); setLoading(true); router.push(`/browser?url=${encodeURIComponent(url)}`); return; }
     setTarget(parsed.value);
     setInput(parsed.value);
     setLoading(true);
@@ -298,19 +299,9 @@ export function BrowserShell({ initialUrl }: { initialUrl: string }) {
       </div>
     </div>
     <div className="browser-progress"><span className={loading ? "active" : ""} /></div>
-      {target ? <div className="web-viewport"><div className="browser-wait" hidden={!loading}><span className="loading-orbit"/><span>Connecting securely…</span><button className="wait-diagnostics" onClick={() => void runDiagnostics()}>Diagnose</button></div>{proxy && <iframe ref={frameRef} className="browser-frame" title="Web page" src={proxy} onLoad={() => setFrameLoaded(true)} allow="clipboard-read; clipboard-write; fullscreen; autoplay; encrypted-media; picture-in-picture" referrerPolicy="no-referrer" />}{error && <ConnectionError error={error} target={target} retry={() => { setError(""); setLoading(true); startLoadTimeout(); send("sonsisearch:navigate", target); }} back={() => router.back()} diagnose={() => void runDiagnostics()} />}</div> : error ? <ConnectionError error={error} back={() => router.back()} diagnose={() => void runDiagnostics()} /> : <section className="browser-welcome"><div className="welcome-emblem">◉</div><span className="eyebrow">SONSIPROXY · READY</span><h1>Where to next?</h1><p>Enter a web address or search the open web.</p><button className="action-button" onClick={() => router.push("/")}>⌂ <span>Go to search</span></button><button className="action-button" onClick={() => void runDiagnostics()}>ⓘ <span>Connection diagnostics</span></button></section>}
+      {target ? <div className="web-viewport"><div className="browser-wait" hidden={!loading}><span className="loading-orbit"/><span>Connecting securely…</span><button className="wait-diagnostics" onClick={() => void runDiagnostics()}>Diagnose</button></div>{proxy && <iframe ref={frameRef} className="browser-frame" title="Web page" src={`${proxy}/proxy`} onLoad={() => setFrameLoaded(true)} allow="clipboard-read; clipboard-write; fullscreen; autoplay; encrypted-media; picture-in-picture" referrerPolicy="no-referrer" />}{error && <ConnectionError error={error} target={target} retry={() => { setError(""); setLoading(true); startLoadTimeout(); send("sonsisearch:navigate", target); }} back={() => router.back()} diagnose={() => void runDiagnostics()} />}</div> : error ? <ConnectionError error={error} back={() => router.back()} diagnose={() => void runDiagnostics()} /> : <section className="browser-welcome"><div className="welcome-emblem">◉</div><span className="eyebrow">SONSIPROXY · READY</span><h1>Where to next?</h1><p>Enter a web address or search the open web.</p><button className="action-button" onClick={() => router.push("/")}>⌂ <span>Go to search</span></button><button className="action-button" onClick={() => void runDiagnostics()}>ⓘ <span>Connection diagnostics</span></button></section>}
     {diagnosticsOpen && <DiagnosticsPanel checks={diagnosticChecks} stages={diagnosticStages} running={diagnosticsRunning} copyMessage={copyMessage} report={getDiagnosticReport()} rerun={() => void runDiagnostics()} copy={() => void copyDiagnosticReport()} close={() => setDiagnosticsOpen(false)} />}
   </main>;
-}
-
-function getProxyUrl() {
-  const configured = process.env.NEXT_PUBLIC_PROXY_URL?.trim();
-  if (!configured) return "";
-  try {
-    const url = new URL(configured);
-    if (url.protocol === "https:" || (url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) return url.origin;
-  } catch { /* invalid configuration */ }
-  return "";
 }
 
 function ConnectionError({ error, target, retry, back, diagnose }: { error: string; target?: string; retry?: () => void; back: () => void; diagnose: () => void }) {

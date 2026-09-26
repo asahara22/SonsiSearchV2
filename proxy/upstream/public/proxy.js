@@ -8,7 +8,7 @@
     window.HALCYON_DIAGNOSTIC_STAGES[stage] = { state, detail: safeDetail, at: message.at };
     window.dispatchEvent(new CustomEvent("halcyon:diagnostic", { detail: message }));
     if (window.parent === window) return;
-    for (const origin of window.HALCYON_EMBED_ORIGINS || []) window.parent.postMessage(message, origin);
+    for (const origin of new Set([...(window.HALCYON_EMBED_ORIGINS || []), location.origin])) window.parent.postMessage(message, origin);
   };
   function withTimeout(promise, ms, label) {
     let timer;

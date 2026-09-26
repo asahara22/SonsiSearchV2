@@ -16,7 +16,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
   return <div className="app-frame">
     <header className="app-header">
       <button className="icon-button menu-trigger" aria-label="Open navigation" onClick={() => setOpen(true)}>☰</button>
-      <Link className="brand" href="/"><span className="brand-mark">◉</span><span>Sonsi<span className="brand-accent">Search</span></span></Link>
+      <Link className="brand" href="/"><span className="brand-mark">◉</span><span>Sonsi<span className="brand-accent">Search</span> V2</span></Link>
       <Link className="header-browser" href="/browser">Browser <span>↗</span></Link>
     </header>
     <div className="app-content">{children}</div>
