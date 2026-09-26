@@ -4,13 +4,15 @@ services:
     runtime: docker
     dockerfilePath: ./proxy/Dockerfile
     dockerContext: .
-    healthCheckPath: /
+    healthCheckPath: /.well-known/sonsisearch-diagnostics
     envVars:
       - key: HOST
         value: 0.0.0.0
       - key: HALCYON_PASSWORD
         sync: false
-      - key: HALCYON_EMBED_ORIGINS
+      - key: SEARCH_API_URL
+        sync: false
+      - key: SEARCH_API_KEY
         sync: false
       - key: HALCYON_ALLOWED_PORTS
         value: 80,443

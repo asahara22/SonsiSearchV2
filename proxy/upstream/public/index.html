@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="robots" content="noindex" />
     <script>window.HALCYON_EMBED_ORIGINS = __HALCYON_EMBED_ORIGINS__; if (window.parent !== window) document.documentElement.classList.add("sonsisearch-embedded");</script>
-    <title>SonsiSearch Browser</title>
+    <title>SonsiSearch</title>
     <link rel="icon" href="/assets/icon.svg" />
     <link
       rel="preconnect"
@@ -32,7 +32,7 @@
     <div id="app">
       <!-- Floating dock -->
       <aside class="dock">
-        <button class="orb-mark" data-nav="home" title="Halcyon">
+        <button class="orb-mark" data-nav="home" title="SonsiSearch">
           <span class="orb"></span>
         </button>
         <nav class="nav">
@@ -47,6 +47,10 @@
           <button class="nav-btn" data-nav="history" title="History">
             <svg viewBox="0 0 24 24"><path d="M12 8v5l3 2M3.05 11a9 9 0 1 1 .5 4M3 20v-5h5"/></svg>
             <span class="tip">History</span>
+          </button>
+          <button class="nav-btn" data-nav="diagnostics" title="Connection diagnostics">
+            <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm-1 4h2v6h-2zm0 8h2v2h-2z"/></svg>
+            <span class="tip">Diagnostics</span>
           </button>
           <button class="nav-btn" data-nav="settings" title="Settings">
             <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
@@ -75,9 +79,9 @@
             <p class="greeting" id="greeting"></p>
             <div class="logo-line">
               <span class="hero-orb"><span class="orb"></span></span>
-              <h1 class="wordmark">Halcyon</h1>
+              <h1 class="wordmark">SonsiSearch</h1>
             </div>
-            <p class="tagline">A calm window on the open web.</p>
+            <p class="tagline">検索して、見つけて、そのまま読む。</p>
 
             <form id="search-form" class="omni">
               <svg class="omni-icon" viewBox="0 0 24 24"><path d="M10 2a8 8 0 105.3 14l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z"/></svg>
@@ -87,7 +91,7 @@
                 autocomplete="off"
                 autocapitalize="off"
                 spellcheck="false"
-                placeholder="Search the web, or paste a link"
+                placeholder="検索語またはWebアドレスを入力"
               />
               <button type="submit" class="omni-go">
                 <span>Enter</span>
@@ -101,6 +105,16 @@
             <div class="ql-label">Jump back in</div>
             <div class="quicklinks" id="quicklinks"></div>
           </div>
+        </section>
+
+        <!-- SEARCH RESULTS -->
+        <section class="view" data-view="results">
+          <header class="view-head">
+            <h2 id="results-heading">検索結果</h2>
+            <p id="results-query"></p>
+          </header>
+          <p id="search-status" class="search-status" aria-live="polite"></p>
+          <div id="search-results" class="search-results"></div>
         </section>
 
         <!-- APPS -->
@@ -119,20 +133,6 @@
             <p>Everything lives in your browser — nothing is sent anywhere.</p>
           </header>
           <div class="settings">
-            <div class="set-card">
-              <label class="field">
-                <span class="field-label">Search engine</span>
-                <div class="select-wrap">
-                  <select id="set-engine">
-                    <option value="https://www.google.com/search?q=%s">Google</option>
-                    <option value="https://duckduckgo.com/?q=%s">DuckDuckGo</option>
-                    <option value="https://www.bing.com/search?q=%s">Bing</option>
-                    <option value="https://search.brave.com/search?q=%s">Brave</option>
-                  </select>
-                </div>
-              </label>
-            </div>
-
             <div class="set-card">
               <label class="field toggle-field">
                 <div>
@@ -227,7 +227,7 @@
               <div class="field">
                 <span class="field-label">Tab cloak</span>
                 <input id="set-cloak-title" type="text" placeholder="Tab title (e.g. Google Classroom)" />
-                <span class="field-hint">Disguises this tab's title &amp; icon. Blank = Halcyon.</span>
+                <span class="field-hint">Disguises this tab's title &amp; icon. Blank = SonsiSearch.</span>
               </div>
             </div>
 
@@ -279,6 +279,22 @@
           <p class="history-empty" id="history-empty" hidden>No history yet.</p>
         </section>
 
+        <!-- CONNECTION DIAGNOSTICS -->
+        <section class="view" data-view="diagnostics">
+          <header class="view-head">
+            <h2>Connection diagnostics</h2>
+            <p>Check the browser, proxy, Wisp WebSocket, and runtime startup stages.</p>
+          </header>
+          <div class="diagnostic-tools">
+            <button id="diag-run" class="omni-go" type="button">Run diagnostics</button>
+            <button id="diag-copy" class="wipe-btn" type="button">Copy report</button>
+          </div>
+          <p id="diag-summary" class="search-status" aria-live="polite">Run the checks to see where a connection is stopping.</p>
+          <div id="diag-results" class="diagnostic-results"></div>
+          <label class="diagnostic-report-label" for="diag-report">Shareable report (does not include the page URL or passphrase)</label>
+          <textarea id="diag-report" class="diagnostic-report" readonly rows="10"></textarea>
+        </section>
+
         <!-- PROXY VIEW -->
         <section class="view proxy" data-view="proxy">
           <div class="topbar">
@@ -299,6 +315,7 @@
             <div class="frame-loader" id="frame-loader">
               <span class="load-orb"><span class="orb"></span></span>
               <p class="load-text">Weaving the connection…</p>
+              <button id="loader-diagnose" class="wipe-btn" type="button">接続を診断</button>
             </div>
           </div>
         </section>

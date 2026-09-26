@@ -65,8 +65,9 @@
   // ---- Navigation between views ----
   function show(view) {
     $$(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === view));
+    const activeNav = ["proxy", "results"].includes(view) ? "home" : view;
     $$(".nav-btn[data-nav]").forEach((b) =>
-      b.classList.toggle("active", b.dataset.nav === view)
+      b.classList.toggle("active", b.dataset.nav === activeNav)
     );
   }
   $$("[data-nav]").forEach((el) =>
@@ -100,6 +101,73 @@
   const tbInput = $("#tb-input");
   const tabstrip = $("#tabstrip");
   Halcyon.initTabs($("#frames"));
+
+  const diagnosticStages = { ...(window.HALCYON_DIAGNOSTIC_STAGES || {}) };
+  function renderDiagnostics() {
+    const list = $("#diag-results"); if (!list) return;
+    list.replaceChildren();
+    const entries = Object.entries(diagnosticStages);
+    for (const [stage, info] of entries) {
+      const row = document.createElement("div"); row.className = "diagnostic-item";
+      row.dataset.state = info.state === "failed" ? "fail" : info.state;
+      const mark = document.createElement("span"); mark.className = "diagnostic-mark"; mark.textContent = info.state === "ok" ? "✓" : info.state === "failed" ? "!" : "…";
+      const copy = document.createElement("div");
+      const name = document.createElement("strong"); name.textContent = stage;
+      const detail = document.createElement("p"); detail.textContent = info.detail || info.state;
+      copy.append(name, detail); row.append(mark, copy); list.appendChild(row);
+    }
+    $("#diag-report").value = entries.map(([stage, info]) => `${info.state.toUpperCase()} ${stage}: ${info.detail || ""}`).join("\n");
+  }
+  window.addEventListener("halcyon:diagnostic", (event) => {
+    const { stage, state, detail = "" } = event.detail || {};
+    if (!stage || !state) return;
+    diagnosticStages[stage] = { state, detail: String(detail).replace(/https?:\/\/[^\s"'<>]+/g, "[URL]").slice(0, 180) };
+    renderDiagnostics();
+  });
+  function setDiagnostic(stage, state, detail) {
+    diagnosticStages[stage] = { state, detail };
+    renderDiagnostics();
+  }
+  async function runDiagnostics() {
+    show("diagnostics");
+    $("#diag-summary").textContent = "端末とProxyへの接続を確認しています…";
+    setDiagnostic("secure-context", window.isSecureContext ? "ok" : "failed", window.isSecureContext ? "HTTPSで接続しています" : "HTTPS接続が必要です");
+    setDiagnostic("browser-online", navigator.onLine ? "ok" : "failed", navigator.onLine ? "ネットワーク接続あり" : "端末がオフラインです");
+    setDiagnostic("service-worker-api", "serviceWorker" in navigator ? "ok" : "failed", "Service Worker API");
+    setDiagnostic("websocket-api", "WebSocket" in window ? "ok" : "failed", "WebSocket API");
+    try {
+      const response = await fetch("/.well-known/sonsisearch-diagnostics", { cache: "no-store" });
+      const info = await response.json();
+      setDiagnostic("proxy-http", response.ok ? "ok" : "failed", response.ok ? "同じRenderサービスに到達しました" : `HTTP ${response.status}`);
+      setDiagnostic("proxy-auth", info.authenticationRequired ? "ok" : "ok", info.authenticationRequired ? "パスワード保護が有効です" : "パスワード保護は無効です");
+      setDiagnostic("search-config", info.searchConfigured ? "ok" : "failed", info.searchConfigured ? "検索プロバイダーを設定済みです（キーはサーバー内に保持）" : "RenderにSEARCH_API_URLとSEARCH_API_KEYを設定してください");
+    } catch { setDiagnostic("proxy-http", "failed", "Proxyへ接続できません。端末のフィルターやネットワーク設定を確認してください"); }
+    const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/wisp/`;
+    try {
+      const wsResult = await new Promise((resolve) => {
+        let settled = false; const finish = (ok, detail) => { if (settled) return; settled = true; clearTimeout(timer); try { socket.close(); } catch {} resolve({ ok, detail }); };
+        const timer = setTimeout(() => finish(false, "Wisp WebSocketが5秒以内に応答しません（端末フィルターが原因の可能性）"), 5000);
+        let socket;
+        try { socket = new WebSocket(wsUrl, "wisp-v2"); } catch { return finish(false, "WebSocketを開始できません"); }
+        socket.addEventListener("open", () => finish(true, "Wisp WebSocketに接続できました"), { once: true });
+        socket.addEventListener("error", () => finish(false, "Wisp WebSocketが遮断または拒否されました"), { once: true });
+      });
+      setDiagnostic("wisp-websocket", wsResult.ok ? "ok" : "failed", wsResult.detail);
+    } catch { setDiagnostic("wisp-websocket", "failed", "Wisp WebSocketの確認に失敗しました"); }
+    if (window.Halcyon) setDiagnostic("halcyon-runtime", "ok", "Scramjet / Halcyon runtimeを読み込み済みです");
+    const failed = Object.values(diagnosticStages).filter((item) => item.state === "failed").length;
+    $("#diag-summary").textContent = failed ? `${failed}項目で問題を検出しました。結果を端末管理者に共有してください。` : "基本接続を確認しました。ページ読込中の場合はService Worker / runtimeの項目も確認してください。";
+    renderDiagnostics();
+  }
+  $("#diag-run")?.addEventListener("click", runDiagnostics);
+  $("#loader-diagnose")?.addEventListener("click", runDiagnostics);
+  $("#diag-copy")?.addEventListener("click", async () => {
+    const report = $("#diag-report").value;
+    try { await navigator.clipboard.writeText(report); toast("診断レポートをコピーしました"); }
+    catch { $("#diag-report").focus(); $("#diag-report").select(); toast("レポートを選択しました。コピーしてください"); }
+  });
+  $$('[data-nav="diagnostics"]').forEach((el) => el.addEventListener("click", () => runDiagnostics()));
+  renderDiagnostics();
 
   let lastActiveUrl = "";
 
@@ -165,13 +233,60 @@
       reportDiagnostic("navigation", "failed", err?.message || "Navigation failed");
       loader.classList.add("hidden");
       notifyParent({ type: "sonsisearch:error" });
+      if (window.parent === window) toast("接続を開始できません。Diagnosticsから原因を確認してください。");
     }
+  }
+
+  function isWebAddress(value) {
+    const text = value.trim();
+    if (/^https?:\/\//i.test(text)) return true;
+    return /^[\w-]+(?:\.[\w-]+)+(?:[:/][^\s]*)?$/i.test(text);
+  }
+
+  async function searchWeb(query) {
+    const heading = $("#results-query");
+    const status = $("#search-status");
+    const results = $("#search-results");
+    show("results");
+    heading.textContent = `「${query}」の検索結果`;
+    status.textContent = "検索しています…";
+    results.replaceChildren();
+    try {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { headers: { Accept: "application/json" }, cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `検索に失敗しました (${response.status})`);
+      if (!data.results?.length) { status.textContent = "検索結果がありません。"; return; }
+      status.textContent = `${data.results.length}件の検索結果`;
+      for (const item of data.results) {
+        const card = document.createElement("article"); card.className = "search-result";
+        const title = document.createElement("h3");
+        const open = document.createElement("button"); open.type = "button"; open.className = "result-title"; open.textContent = item.title;
+        open.addEventListener("click", () => launch(item.url)); title.appendChild(open);
+        const host = document.createElement("p"); host.className = "search-result-url"; host.textContent = new URL(item.url).hostname;
+        const description = document.createElement("p"); description.textContent = item.description || "";
+        const actions = document.createElement("div"); actions.className = "search-result-actions";
+        const inApp = document.createElement("button"); inApp.type = "button"; inApp.textContent = "SonsiSearchで開く"; inApp.addEventListener("click", () => launch(item.url));
+        const original = document.createElement("a"); original.href = item.url; original.target = "_blank"; original.rel = "noopener noreferrer"; original.textContent = "元サイト ↗";
+        actions.append(inApp, original); card.append(title, host, description, actions); results.appendChild(card);
+      }
+    } catch (error) { status.textContent = error?.message || "検索に失敗しました。"; }
+  }
+
+  function navigateOrSearch(value) {
+    const input = value.trim(); if (!input) return;
+    if (isWebAddress(input)) {
+      try {
+        const url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
+        if (["http:", "https:"].includes(url.protocol) && !url.username && !url.password) return launch(url.href);
+      } catch { /* Treat malformed input as a search. */ }
+    }
+    return searchWeb(input);
   }
 
   // Search bar on home
   $("#search-form").addEventListener("submit", (e) => {
     e.preventDefault();
-    launch($("#search-input").value);
+    navigateOrSearch($("#search-input").value);
     $("#search-input").value = "";
   });
   // Warm the runtime up as soon as the user focuses the box.
@@ -191,7 +306,7 @@
   // Proxy top bar
   $("#tb-form").addEventListener("submit", (e) => {
     e.preventDefault();
-    launch(tbInput.value);
+    navigateOrSearch(tbInput.value);
   });
   $("#tb-back").addEventListener("click", () => Halcyon.back());
   $("#tb-forward").addEventListener("click", () => Halcyon.forward());
@@ -409,7 +524,6 @@
   updateStar();
 
   // ---- Settings ----
-  const engineSel = $("#set-engine");
   const wispIn = $("#set-wisp");
   const cloakTitle = $("#set-cloak-title");
   const aboutBlank = $("#set-aboutblank");
@@ -468,13 +582,11 @@
     );
   }
 
-  engineSel.value = store.get("engine", "https://www.google.com/search?q=%s");
   wispIn.value = store.get("wisp", "");
   cloakTitle.value = store.get("cloakTitle", "");
   aboutBlank.checked = store.get("aboutblank", "0") === "1";
   panicUrl.value = store.get("panicUrl", "https://classroom.google.com");
 
-  engineSel.addEventListener("change", () => store.set("engine", engineSel.value));
   wispIn.addEventListener("change", () => {
     wispIn.value.trim() ? store.set("wisp", wispIn.value.trim()) : store.del("wisp");
     alert("Wisp server saved. Reload the page to apply.");
@@ -488,7 +600,7 @@
   // ---- Tab cloak ----
   function applyCloak() {
     const t = store.get("cloakTitle", "").trim();
-    document.title = t || "Halcyon";
+    document.title = t || "SonsiSearch";
     const fav = document.querySelector("link[rel=icon]");
     if (t) {
       // Neutral favicon (a document glyph) when cloaked.

@@ -2,9 +2,12 @@
 // and exposes a tiny `window.Halcyon` API the UI drives.
 (() => {
   const reportDiagnostic = (stage, state, detail = "") => {
-    if (window.parent === window) return;
     const safeDetail = String(detail).replace(/https?:\/\/[^\s"'<>]+/g, "[URL]").slice(0, 180);
     const message = { type: "sonsisearch:diagnostic", stage, state, detail: safeDetail, at: Date.now() };
+    window.HALCYON_DIAGNOSTIC_STAGES ||= {};
+    window.HALCYON_DIAGNOSTIC_STAGES[stage] = { state, detail: safeDetail, at: message.at };
+    window.dispatchEvent(new CustomEvent("halcyon:diagnostic", { detail: message }));
+    if (window.parent === window) return;
     for (const origin of window.HALCYON_EMBED_ORIGINS || []) window.parent.postMessage(message, origin);
   };
   function withTimeout(promise, ms, label) {

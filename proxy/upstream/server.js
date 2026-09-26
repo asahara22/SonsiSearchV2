@@ -146,6 +146,7 @@ function makeLimiter(max, windowMs) {
 }
 const httpLimiter = makeLimiter(num("HALCYON_RL_HTTP", 600), 60_000); // req/min/IP
 const loginLimiter = makeLimiter(num("HALCYON_RL_LOGIN", 20), 60_000); // strict
+const searchLimiter = makeLimiter(20, 60_000); // searches/min/IP
 const wispLimiter = makeLimiter(num("HALCYON_RL_WISP", 300), 60_000); // upgrades/min/IP
 const MAX_WISP_CONCURRENT = num("HALCYON_MAX_CONN", 128); // concurrent tunnels/IP
 const wispConns = new Map(); // ip -> live connection count
@@ -555,7 +556,7 @@ function readBody(req) {
 function loginPage(error = false) {
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<meta name="robots" content="noindex"/><title>Halcyon</title>
+<meta name="robots" content="noindex"/><title>SonsiSearch</title>
 <style>
   :root{color-scheme:dark}
   *{box-sizing:border-box}
@@ -581,11 +582,11 @@ function loginPage(error = false) {
 </style></head><body>
 <form method="POST" action="/login">
   <div class="orb"></div>
-  <h1>Halcyon</h1>
-  <p>This proxy is private. Enter the passphrase.</p>
+  <h1>SonsiSearch</h1>
+  <p>このサービスは保護されています。パスワードを入力してください。</p>
   <input type="password" name="password" placeholder="Passphrase" autofocus autocomplete="current-password"/>
-  <button type="submit">Unlock</button>
-  <div class="err">${error ? "Incorrect passphrase." : ""}</div>
+  <button type="submit">ロック解除</button>
+  <div class="err">${error ? "パスワードが違います。" : ""}</div>
 </form></body></html>`;
 }
 
@@ -618,6 +619,12 @@ const server = http.createServer(async (req, res) => {
     if (path === "/.well-known/sonsisearch-diagnostics") {
       const origin = req.headers.origin;
       let normalizedOrigin = "";
+      let serviceOrigin = "";
+      try {
+        const scheme = (req.headers["x-forwarded-proto"] || "http").split(",")[0].trim();
+        const host = (req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
+        serviceOrigin = new URL(`${scheme}://${host}`).origin;
+      } catch { /* The hosting proxy may omit host metadata in local tools. */ }
       try {
         const parsedOrigin = new URL(origin || "");
         if (["http:", "https:"].includes(parsedOrigin.protocol)) {
@@ -640,8 +647,10 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
       return res.end(JSON.stringify({
         ok: true,
-        embedAllowed: Boolean(normalizedOrigin && EMBED_ORIGINS.includes(normalizedOrigin)),
+        embedAllowed: !normalizedOrigin || normalizedOrigin === serviceOrigin || EMBED_ORIGINS.includes(normalizedOrigin),
+        embeddingRequired: Boolean(normalizedOrigin && normalizedOrigin !== serviceOrigin),
         authenticationRequired: Boolean(AUTH_TOKEN),
+        searchConfigured: Boolean(process.env.SEARCH_API_URL && process.env.SEARCH_API_KEY),
       }));
     }
 
@@ -680,6 +689,79 @@ const server = http.createServer(async (req, res) => {
         }
         res.writeHead(401, { "Content-Type": "text/plain" });
         return res.end("Unauthorized");
+      }
+    }
+
+    // Same-origin search API: keeps the provider key on the server while
+    // allowing the Halcyon-backed SonsiSearch app to run as one Render service.
+    if (path === "/api/search") {
+      const json = (status, body, headers = {}) => {
+        res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...headers });
+        res.end(JSON.stringify(body));
+      };
+      if (req.method !== "GET") return json(405, { error: "この操作には対応していません。" });
+      const query = (url.searchParams.get("q") || "").trim();
+      if (!query) return json(400, { error: "検索語を入力してください。" });
+      if (query.length > 300) return json(400, { error: "検索語が長すぎます。" });
+      if (!searchLimiter(ip)) return json(429, { error: "検索回数の上限に達しました。しばらくしてから再度お試しください。" }, { "Retry-After": "60" });
+
+      const apiUrl = process.env.SEARCH_API_URL;
+      const apiKey = process.env.SEARCH_API_KEY;
+      if (!apiUrl || !apiKey) return json(503, { error: "検索APIが未設定です。RenderのSEARCH_API_URLとSEARCH_API_KEYを設定してください。" });
+
+      let endpoint;
+      try { endpoint = new URL(apiUrl); } catch { return json(500, { error: "SEARCH_API_URLの設定が正しくありません。" }); }
+      if (endpoint.protocol !== "https:") return json(500, { error: "検索APIにはHTTPS endpointを指定してください。" });
+      endpoint.searchParams.set("q", query);
+
+      try {
+        const response = await fetch(endpoint, {
+          headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+          signal: AbortSignal.timeout(8_000),
+          cache: "no-store",
+        });
+        if (!response.ok) return json(502, { error: `検索プロバイダーがHTTP ${response.status}を返しました。` });
+        if (!response.body || Number(response.headers.get("content-length") || 0) > 1_000_000) {
+          return json(502, { error: "検索APIの応答サイズが上限を超えています。" });
+        }
+        const reader = response.body.getReader();
+        const chunks = [];
+        let total = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          total += value.byteLength;
+          if (total > 1_000_000) {
+            await reader.cancel();
+            return json(502, { error: "検索APIの応答サイズが上限を超えています。" });
+          }
+          chunks.push(value);
+        }
+        const bytes = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+        let payload;
+        try { payload = JSON.parse(new TextDecoder().decode(bytes)); }
+        catch { return json(502, { error: "検索APIがJSON以外の応答を返しました。" }); }
+        const list = Array.isArray(payload) ? payload : payload && typeof payload === "object" ? payload.results ?? payload.items : null;
+        if (!Array.isArray(list)) return json(502, { error: "検索API応答にresults配列がありません。" });
+
+        const results = list.slice(0, 20).flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const title = typeof item.title === "string" ? item.title.trim().slice(0, 500) : "";
+          const rawUrl = typeof item.url === "string" ? item.url : typeof item.link === "string" ? item.link : "";
+          const description = typeof item.description === "string" ? item.description.slice(0, 3000) : typeof item.snippet === "string" ? item.snippet.slice(0, 3000) : "";
+          try {
+            const resultUrl = new URL(rawUrl);
+            return title && ["http:", "https:"].includes(resultUrl.protocol) && !resultUrl.username && !resultUrl.password
+              ? [{ title, url: resultUrl.href, description }]
+              : [];
+          } catch { return []; }
+        });
+        return json(200, { results });
+      } catch (error) {
+        const timedOut = error instanceof Error && error.name === "TimeoutError";
+        return json(502, { error: timedOut ? "検索プロバイダーがタイムアウトしました。" : "検索プロバイダーに接続できませんでした。" });
       }
     }
 
