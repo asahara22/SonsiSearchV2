@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { parseAddressOrSearch } from "@/lib/address";
 
@@ -37,7 +36,6 @@ export function QuickSites() {
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [adultEnabled, setAdultEnabled] = useState(false);
-  const router = useRouter();
 
   useEffect(() => {
     setSites(readSites());
@@ -66,10 +64,9 @@ export function QuickSites() {
       const host = new URL(site.url).hostname.replace(/^www\./, "");
       return <div className="quick-site-wrap" key={site.url}><Link prefetch={false} className="site-card glass-panel" href={`/browser?url=${encodeURIComponent(site.url)}`}><span className="site-glyph">{site.title[0]?.toUpperCase()}</span><span className="site-copy"><strong>{site.title}</strong><small>{host}</small></span><span className="site-arrow">↗</span></Link>{editing && <button className="quick-remove" aria-label={`Remove ${site.title}`} onClick={() => save(sites.filter((entry) => entry.url !== site.url))}>×</button>}</div>;
     })}</div>
-    <section className={`adult-sites${adultEnabled ? " adult-sites-enabled" : ""}`} aria-label="18+ sites">
+    {adultEnabled && <section className="adult-sites adult-sites-enabled" aria-label="18+ sites">
       <div className="adult-sites-heading"><div><span className="adult-label">18+ · ADULT CONTENT</span><h3>R18 sites</h3></div><Link className="adult-toggle" href="/settings">{adultEnabled ? "R18 ON · Settings" : "Enable in Settings"}</Link></div>
-      <div className="adult-sites-grid">{ADULT_SITES.map((site) => <button className={`adult-site-button${adultEnabled ? "" : " is-locked"}`} key={site.url} onClick={() => adultEnabled ? (window.location.href = `/browser?url=${encodeURIComponent(site.url)}`) : router.push("/settings")} aria-disabled={!adultEnabled}>{site.title}<span>{adultEnabled ? "↗" : "🔒"}</span></button>)}</div>
-      {!adultEnabled && <p className="adult-note">成人向けリンクは設定でR18モードを有効にすると開けます。</p>}
-    </section>
+      <div className="adult-sites-grid">{ADULT_SITES.map((site) => <button className="adult-site-button" key={site.url} onClick={() => { window.location.href = `/browser?url=${encodeURIComponent(site.url)}`; }}>{site.title}<span>↗</span></button>)}</div>
+    </section>}
   </section>;
 }
