@@ -3,7 +3,6 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseAddressOrSearch } from "@/lib/address";
-import { buildSearchUrl, getSearchEngine } from "@/lib/search-engine";
 
 type SavedSite = { title: string; url: string; visited: number };
 type DiagnosticCheck = { id: string; label: string; state: "pending" | "ok" | "warn" | "fail"; detail: string };
@@ -44,7 +43,7 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
   const initialSearch = initial.kind === "search" ? initial.value : "";
 
   useEffect(() => {
-    if (initialSearch && initialUrl) router.replace(`/browser?url=${encodeURIComponent(buildSearchUrl(initialSearch, getSearchEngine()))}`);
+    if (initialSearch && initialUrl) router.replace(`/search?q=${encodeURIComponent(initialSearch)}`);
   }, [initialSearch, initialUrl, router]);
 
   useEffect(() => {
@@ -117,7 +116,7 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
     setError("");
     const parsed = parseAddressOrSearch(input);
     if (parsed.kind === "invalid") { setError("Credentials in a URL are not supported."); return; }
-    if (parsed.kind === "search") { const url = buildSearchUrl(parsed.value, getSearchEngine()); setTarget(url); setInput(url); setLoading(true); router.push(`/browser?url=${encodeURIComponent(url)}`); return; }
+    if (parsed.kind === "search") { router.push(`/search?q=${encodeURIComponent(parsed.value)}`); return; }
     setTarget(parsed.value);
     setInput(parsed.value);
     setLoading(true);
