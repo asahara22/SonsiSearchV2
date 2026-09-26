@@ -1,5 +1,5 @@
 import { SearchForm } from "@/components/search-form";
-import { RecentSites } from "@/components/recent-sites";
+import { HomeBookmarks } from "@/components/recent-sites";
 import { QuickSites } from "@/components/quick-sites";
 
 export default function HomePage() {
@@ -12,7 +12,7 @@ export default function HomePage() {
       <SearchForm />
       <p className="hint">Enter a search or a web address to get started</p>
       <QuickSites />
-      <RecentSites />
+      <HomeBookmarks />
     </main>
   );
 }

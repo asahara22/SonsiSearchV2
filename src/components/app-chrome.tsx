@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { SplashScreen } from "@/components/splash-screen";
 
 const links = [["⌂", "Home", "/"], ["⌕", "Search", "/search"], ["◫", "Browser", "/browser"], ["◷", "History", "/history"], ["☆", "Bookmarks", "/bookmarks"], ["⚙", "Settings", "/settings"]];
 
@@ -10,12 +11,12 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const applyTheme = () => {
       const preference = localStorage.getItem("sonsisearch:theme") || "system";
-      const theme = preference === "light" || preference === "dark" || preference === "cyber"
+      const theme = preference === "light" || preference === "dark" || preference === "cyber" || preference === "divine"
         ? preference
         : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       document.documentElement.dataset.theme = theme;
       const color = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-      if (color) color.content = theme === "light" ? "#f3f6fc" : theme === "cyber" ? "#080a16" : "#0b1020";
+      if (color) color.content = theme === "light" ? "#f3f6fc" : theme === "divine" ? "#f8f4ed" : theme === "cyber" ? "#080a16" : "#0b1020";
     };
     applyTheme();
     document.documentElement.dataset.r18 = localStorage.getItem("sonsisearch:r18") === "enabled" ? "true" : "false";
@@ -27,6 +28,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
     return () => colorPreference.removeEventListener("change", onSystemThemeChange);
   }, []);
   return <div className="app-frame">
+    <SplashScreen />
     <header className="app-header">
       <button className="icon-button menu-trigger" aria-label="Open navigation" onClick={() => setOpen(true)}>☰</button>
       <Link prefetch={false} className="brand" href="/" aria-label="SonsiSearch V2 home"><span className="brand-logo" aria-hidden="true" /></Link>

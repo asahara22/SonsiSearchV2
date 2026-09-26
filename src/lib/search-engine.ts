@@ -1,4 +1,5 @@
 export const SEARCH_ENGINE_STORAGE_KEY = "sonsisearch:search-engine";
+export const DEFAULT_SEARCH_ENGINE = "yahoo" as const;
 
 export const SEARCH_ENGINES = {
   duckduckgo: { label: "DuckDuckGo", baseUrl: "https://duckduckgo.com/?q=" },
@@ -10,15 +11,15 @@ export const SEARCH_ENGINES = {
 export type SearchEngine = keyof typeof SEARCH_ENGINES;
 
 export function normalizeSearchEngine(value: string | null | undefined): SearchEngine {
-  return value && Object.prototype.hasOwnProperty.call(SEARCH_ENGINES, value) ? value as SearchEngine : "duckduckgo";
+  return value && Object.prototype.hasOwnProperty.call(SEARCH_ENGINES, value) ? value as SearchEngine : DEFAULT_SEARCH_ENGINE;
 }
 
 export function getSearchEngine(): SearchEngine {
   return typeof window === "undefined"
-    ? "duckduckgo"
+    ? DEFAULT_SEARCH_ENGINE
     : normalizeSearchEngine(localStorage.getItem(SEARCH_ENGINE_STORAGE_KEY));
 }
 
-export function buildSearchUrl(query: string, engine: SearchEngine = "duckduckgo"): string {
+export function buildSearchUrl(query: string, engine: SearchEngine = DEFAULT_SEARCH_ENGINE): string {
   return `${SEARCH_ENGINES[engine].baseUrl}${encodeURIComponent(query.trim())}`;
 }

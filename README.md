@@ -1,6 +1,6 @@
 # SonsiSearch V2
 
-SonsiSearch V2 serves its Next.js search and browser interface together with the Halcyon/Scramjet proxy in one Render Docker Web Service. The Next.js app is the service homepage; Halcyon is mounted at `/proxy` as the browser engine. DuckDuckGo HTML search results are fetched by the same service without an API key, then individual results open in SonsiSearch Browser. Startpage, Brave Search, and Yahoo can also be selected; those providers open in the proxy browser. History, bookmarks, theme, and search engine preference stay in the browser's local storage.
+SonsiSearch V2 serves its Next.js search and browser interface together with the Halcyon/Scramjet proxy in one Render Docker Web Service. The Next.js app is the service homepage; Halcyon is mounted at `/proxy` as the browser engine. Yahoo Search is the default search engine; DuckDuckGo, Startpage, Brave Search, and Yahoo can be selected in Settings. History, bookmarks, theme, and search engine preference stay in the browser's local storage.
 
 ## Local setup
 
