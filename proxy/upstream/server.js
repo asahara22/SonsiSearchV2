@@ -611,6 +611,40 @@ const server = http.createServer(async (req, res) => {
       return res.end("Too many requests — slow down.");
     }
 
+    // Public, non-sensitive connectivity probe used by the SonsiSearch
+    // diagnostics panel. It deliberately reports only whether this caller's
+    // origin is embed-allowlisted and whether an access gate is configured.
+    // It never returns credentials, cookies, or target-site information.
+    if (path === "/.well-known/sonsisearch-diagnostics") {
+      const origin = req.headers.origin;
+      let normalizedOrigin = "";
+      try {
+        const parsedOrigin = new URL(origin || "");
+        if (["http:", "https:"].includes(parsedOrigin.protocol)) {
+          normalizedOrigin = parsedOrigin.origin;
+          res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
+          res.setHeader("Vary", "Origin");
+        }
+      } catch { /* Direct requests do not need CORS headers. */ }
+      res.setHeader("Cache-Control", "no-store");
+      if (req.method === "OPTIONS") {
+        res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+        res.setHeader("Access-Control-Max-Age", "600");
+        res.writeHead(204);
+        return res.end();
+      }
+      if (req.method !== "GET") {
+        res.writeHead(405, { "Content-Type": "application/json; charset=utf-8" });
+        return res.end(JSON.stringify({ ok: false, error: "method_not_allowed" }));
+      }
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      return res.end(JSON.stringify({
+        ok: true,
+        embedAllowed: Boolean(normalizedOrigin && EMBED_ORIGINS.includes(normalizedOrigin)),
+        authenticationRequired: Boolean(AUTH_TOKEN),
+      }));
+    }
+
     // ---- Access gate ----
     if (AUTH_TOKEN) {
       if (path === "/login") {

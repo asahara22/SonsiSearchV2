@@ -9,6 +9,13 @@
     if (window.parent === window) return;
     for (const origin of embedOrigins) window.parent.postMessage(message, origin);
   };
+  const reportDiagnostic = (stage, state, detail = "") => notifyParent({
+    type: "sonsisearch:diagnostic",
+    stage,
+    state,
+    detail: String(detail).replace(/https?:\/\/[^\s"'<>]+/g, "[URL]").slice(0, 180),
+    at: Date.now(),
+  });
 
   const store = {
     get: (k, d) => localStorage.getItem("halcyon:" + k) ?? d,
@@ -155,6 +162,7 @@
       await Halcyon.go(input);
     } catch (err) {
       console.error(err);
+      reportDiagnostic("navigation", "failed", err?.message || "Navigation failed");
       loader.classList.add("hidden");
       notifyParent({ type: "sonsisearch:error" });
     }
@@ -205,7 +213,10 @@
     if (event.source !== window.parent || !embedOrigins.includes(event.origin)) return;
     const message = event.data;
     if (!message || typeof message !== "object") return;
-    if (message.type === "sonsisearch:navigate" && typeof message.url === "string") {
+    if (message.type === "sonsisearch:diagnose") {
+      reportDiagnostic("halcyon-app", "ok", "Embedded app is responding");
+      Halcyon.preboot().catch((error) => reportDiagnostic("runtime", "failed", error?.message || "Runtime initialization failed"));
+    } else if (message.type === "sonsisearch:navigate" && typeof message.url === "string") {
       try {
         const url = new URL(message.url);
         if (url.protocol === "http:" || url.protocol === "https:") launch(url.href);
@@ -215,6 +226,7 @@
     else if (message.type === "sonsisearch:reload") Halcyon.reload();
   });
   notifyParent({ type: "sonsisearch:ready" });
+  reportDiagnostic("halcyon-app", "ok", "Embedded app is responding");
 
   const startupUrl = new URL(location.href).searchParams.get("url");
   if (startupUrl) {

@@ -35,6 +35,8 @@ The proxy is a separate Docker Web Service. Import `render.yaml` as a Render Blu
 
 The Browser shell embeds the Halcyon app and sends a narrowly scoped postMessage command to navigate its active Scramjet frame. The parent origin is explicitly allowlisted by the proxy, and the target is validated as HTTP/HTTPS on both sides.
 
+If a proxied page stays on the loading screen, open the Browser menu and choose **Connection diagnostics** (or use **Diagnose** on the loading indicator). The report checks HTTPS reachability, `HALCYON_EMBED_ORIGINS`, the configured passphrase gate, Wisp WebSocket access, iframe startup, and Halcyon's runtime boot stages. It omits the target page URL and passphrase. If a school or managed-device filter blocks WebSockets or Service Workers, the report identifies the stage that did not complete; allowlist the SonsiSearch and proxy origins and permit `wss://<proxy-host>/wisp/` when policy allows.
+
 ## Browser app and PWA
 
 SonsiSearch owns the visible browser toolbar and navigation. The embedded Halcyon surface hides its own home, tab strip, and toolbar while retaining the Scramjet/Wisp page runtime. Back/forward/reload and the single URL/search field stay in SonsiSearch. History and bookmarks are stored locally in this browser profile.

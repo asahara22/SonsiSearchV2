@@ -1,6 +1,19 @@
 // Halcyon proxy runtime — wires up Scramjet + the controller + a Wisp transport
 // and exposes a tiny `window.Halcyon` API the UI drives.
 (() => {
+  const reportDiagnostic = (stage, state, detail = "") => {
+    if (window.parent === window) return;
+    const safeDetail = String(detail).replace(/https?:\/\/[^\s"'<>]+/g, "[URL]").slice(0, 180);
+    const message = { type: "sonsisearch:diagnostic", stage, state, detail: safeDetail, at: Date.now() };
+    for (const origin of window.HALCYON_EMBED_ORIGINS || []) window.parent.postMessage(message, origin);
+  };
+  function withTimeout(promise, ms, label) {
+    let timer;
+    return Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)} seconds`)), ms);
+    })]).finally(() => clearTimeout(timer));
+  }
+
   const RUNTIME = {
     sw: "/sw.js",
     scramjet: "/scram/scramjet.js",
@@ -188,13 +201,13 @@
   }
 
   const loadScript = (src) =>
-    new Promise((resolve, reject) => {
+    withTimeout(new Promise((resolve, reject) => {
       const s = document.createElement("script");
       s.src = src;
       s.onload = () => resolve();
-      s.onerror = () => reject(new Error("Failed to load " + src));
+      s.onerror = () => reject(new Error("Blocked or failed to load " + src));
       document.head.appendChild(s);
-    });
+    }), 12000, `Runtime asset ${src}`);
 
   async function registerSw() {
     if (!("serviceWorker" in navigator))
@@ -308,10 +321,22 @@
   async function boot() {
     if (controllerPromise) return controllerPromise;
     controllerPromise = (async () => {
-      const sw = await registerSw();
-      await loadScript(RUNTIME.scramjet);
-      await loadScript(RUNTIME.controllerApi);
-      await loadScript(RUNTIME.libcurl);
+      reportDiagnostic("runtime", "running", "Starting proxy runtime");
+      const stage = async (name, task) => {
+        reportDiagnostic(name, "running", "Loading");
+        try {
+          const value = await withTimeout(Promise.resolve().then(task), 15000, name);
+          reportDiagnostic(name, "ok", "Ready");
+          return value;
+        } catch (error) {
+          reportDiagnostic(name, "failed", error?.message || "Initialization failed");
+          throw error;
+        }
+      };
+      const sw = await stage("service-worker", registerSw);
+      await stage("scramjet-assets", () => loadScript(RUNTIME.scramjet));
+      await stage("controller-assets", () => loadScript(RUNTIME.controllerApi));
+      await stage("transport-assets", () => loadScript(RUNTIME.libcurl));
 
       const { Controller, ManagedPlugin, config } = window.$scramjetController;
       config.scramjetPath = RUNTIME.scramjet;
@@ -328,7 +353,8 @@
       // sites that introspect their own JS depend on (e.g. YouTube's kevlar app,
       // which otherwise throws "Cannot read properties of undefined"). Left on.
       const controller = new Controller({ serviceworker: sw, transport });
-      await controller.wait();
+      await stage("controller", () => controller.wait());
+      reportDiagnostic("runtime", "ok", "Proxy runtime is ready");
 
       // The SW resets its block flags on restart — push the stored preferences.
       navigator.serviceWorker.controller?.postMessage({
@@ -383,7 +409,10 @@
       }
 
       return { controller, UrlWatcher };
-    })();
+    })().catch((error) => {
+      controllerPromise = null;
+      throw error;
+    });
     return controllerPromise;
   }
 
