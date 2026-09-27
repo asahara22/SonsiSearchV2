@@ -9,5 +9,5 @@ export function toReverseProxyPath(value: string | URL): string {
   target.hash = "";
   target.search = "";
   const encodedQuery = query ? `?__ssq=${encodeURIComponent(query)}` : "";
-  return `/proxy/${target.protocol}//${target.host}${target.pathname}${encodedQuery}${hash}`;
+  return `/proxy/${target.protocol.slice(0, -1)}/${target.host}${target.pathname}${encodedQuery}${hash}`;
 }

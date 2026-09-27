@@ -681,7 +681,7 @@ function loginPage(error = false) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    const isReverseProxyRequest = /^\/proxy\/https?:\/\//i.test(url.pathname);
+    const isReverseProxyRequest = /^\/proxy\/https?(?::\/{1,2}|\/)/i.test(url.pathname);
     let path = decodeURIComponent(url.pathname);
     const isBareRequest = bareServer.shouldRoute(req);
 

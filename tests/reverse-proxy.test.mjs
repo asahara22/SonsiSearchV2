@@ -5,7 +5,7 @@ import { clearProxyCacheForTests, injectReaderBridge, parseProxyTarget, resolveP
 test("proxy routes preserve target path and query without changing host", () => {
   const href = "https://www.example.com/docs/a%20b?q=hello%20world&x=1#section";
   const path = toProxyPath(href);
-  assert.match(path, /^\/proxy\/https:\/\/www\.example\.com\/docs\/a%20b\?__ssq=/);
+  assert.match(path, /^\/proxy\/https\/www\.example\.com\/docs\/a%20b\?__ssq=/);
   assert.ok(path.endsWith("#section"));
   assert.equal(new URL(path, "https://sonsisearch.example").origin, "https://sonsisearch.example");
   const target = parseProxyTarget(path);
@@ -15,6 +15,8 @@ test("proxy routes preserve target path and query without changing host", () => 
 test("proxy routes support the documented direct URL form and its query string", () => {
   const target = parseProxyTarget("/proxy/https://example.com/a?search=one&mode=2");
   assert.equal(target.href, "https://example.com/a?search=one&mode=2");
+  assert.equal(parseProxyTarget("/proxy/https:/example.com/a").href, "https://example.com/a");
+  assert.equal(parseProxyTarget("/proxy/https/example.com/a").href, "https://example.com/a");
 });
 
 test("proxy target validation rejects credentials, unsupported protocols, and non-web ports", async () => {
@@ -58,12 +60,12 @@ test("public targets are resolved and returned for address-pinned upstream reque
 test("HTML rewriting honors base href and proxies navigation and asset URLs", () => {
   const html = '<meta http-equiv="Content-Security-Policy" content="default-src self"><base href="https://cdn.example/assets/"><a href="../article?q=1&amp;x=2" target="_blank">Read</a><img src="hero.png" srcset="small.png 1x, large.png 2x"><form action="/submit"><input></form><div style="background:url(../bg.png)"></div><style>.x{background:url(icon.svg)}@import "theme.css";</style><script>const sample = "<a href=\"https://untouched.example\">";</script>';
   const rewritten = rewriteHtml(html, "https://origin.example/page");
-  assert.match(rewritten, /href="\/proxy\/https:\/\/cdn\.example\/article\?__ssq=/);
-  assert.match(rewritten, /src="\/proxy\/https:\/\/cdn\.example\/assets\/hero\.png"/);
-  assert.match(rewritten, /srcset="\/proxy\/https:\/\/cdn\.example\/assets\/small\.png 1x, \/proxy\/https:\/\/cdn\.example\/assets\/large\.png 2x"/);
-  assert.match(rewritten, /action="\/proxy\/https:\/\/cdn\.example\/submit"/);
-  assert.match(rewritten, /background:url\(\/proxy\/https:\/\/cdn\.example\/bg\.png\)/);
-  assert.match(rewritten, /@import "\/proxy\/https:\/\/cdn\.example\/assets\/theme\.css"/);
+  assert.match(rewritten, /href="\/proxy\/https\/cdn\.example\/article\?__ssq=/);
+  assert.match(rewritten, /src="\/proxy\/https\/cdn\.example\/assets\/hero\.png"/);
+  assert.match(rewritten, /srcset="\/proxy\/https\/cdn\.example\/assets\/small\.png 1x, \/proxy\/https\/cdn\.example\/assets\/large\.png 2x"/);
+  assert.match(rewritten, /action="\/proxy\/https\/cdn\.example\/submit"/);
+  assert.match(rewritten, /background:url\(\/proxy\/https\/cdn\.example\/bg\.png\)/);
+  assert.match(rewritten, /@import "\/proxy\/https\/cdn\.example\/assets\/theme\.css"/);
   assert.doesNotMatch(rewritten, /<base\b/i);
   assert.doesNotMatch(rewritten, /http-equiv="Content-Security-Policy"/i);
   assert.match(rewritten, /target="_self"/);
@@ -80,8 +82,8 @@ test("reader bridge is injected after head metadata and before the page body", (
 test("CSS rewriting proxies relative and absolute URL references but leaves data URLs", () => {
   const css = 'a{background:url("../img/a.png")}@import url(https://assets.example/theme.css);b{mask:url(data:image/svg+xml,%3Csvg%3E)}';
   const rewritten = rewriteCss(css, "https://site.example/css/main.css");
-  assert.match(rewritten, /\/proxy\/https:\/\/site\.example\/img\/a\.png/);
-  assert.match(rewritten, /\/proxy\/https:\/\/assets\.example\/theme\.css/);
+  assert.match(rewritten, /\/proxy\/https\/site\.example\/img\/a\.png/);
+  assert.match(rewritten, /\/proxy\/https\/assets\.example\/theme\.css/);
   assert.match(rewritten, /data:image\/svg\+xml,%3Csvg%3E/);
 });
 
@@ -148,7 +150,7 @@ test("public upstream redirects remain on the SonsiSearch host and are validated
     },
   );
   assert.equal(response.status, 302);
-  assert.match(response.headers.Location, /^\/proxy\/https:\/\/next\.example\/read\?__ssq=/);
+  assert.match(response.headers.Location, /^\/proxy\/https\/next\.example\/read\?__ssq=/);
   clearProxyCacheForTests();
 });
 

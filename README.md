@@ -4,7 +4,7 @@ SonsiSearch V2 serves its Next.js search and browser interface together with the
 
 The integrated Render service is available at [sonsisearch-v2.onrender.com](https://sonsisearch-v2.onrender.com).
 
-Search results open through the integrated same-domain reader at `/proxy/https://…`. It resolves and pins public DNS addresses, rejects private/reserved destinations and unsafe redirects, strips user credentials, rewrites common HTML/CSS URLs, and uses a bounded in-memory cache. Halcyon's existing `/proxy` shell remains available.
+Search results open through the integrated same-domain reader at `/proxy/https/example.com/path`. This slash-separated route avoids address-bar normalization of `https://` inside a path. It resolves and pins public DNS addresses, rejects private/reserved destinations and unsafe redirects, strips user credentials, rewrites common HTML/CSS URLs, and uses a bounded in-memory cache. Halcyon's existing `/proxy` shell remains available.
 
 ## Local setup
 

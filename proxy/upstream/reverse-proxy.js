@@ -40,9 +40,21 @@ export function parseProxyTarget(requestUrl) {
   catch { throw new ProxyError("Invalid proxy URL."); }
 
   const raw = route.pathname.slice("/proxy/".length);
-  if (raw.length > MAX_TARGET_LENGTH || !/^https?:\/\//i.test(raw)) throw new ProxyError("Expected /proxy/https://… or /proxy/http://….");
   let target;
-  try { target = new URL(raw); }
+  if (raw.length > MAX_TARGET_LENGTH) throw new ProxyError("Target URL is too long.");
+  try {
+    // Accept the old literal URL form, including the single-slash variant
+    // normalized by some address bars, plus the stable /proxy/https/host form.
+    const legacy = raw.match(/^(https?):\/{1,2}([^/]+)(\/.*)?$/i);
+    const stable = raw.match(/^(https?)\/([^/]+)(\/.*)?$/i);
+    const reconstructed = legacy
+      ? `${legacy[1]}://${legacy[2]}${legacy[3] || "/"}`
+      : stable
+        ? `${stable[1]}://${stable[2]}${stable[3] || "/"}`
+        : null;
+    if (!reconstructed) throw new Error("Invalid proxy route");
+    target = new URL(reconstructed);
+  }
   catch { throw new ProxyError("Invalid target URL."); }
   if (target.username || target.password) throw new ProxyError("Credentials in target URLs are not allowed.");
   if (!["http:", "https:"].includes(target.protocol)) throw new ProxyError("Only HTTP and HTTPS targets are allowed.");
@@ -65,7 +77,7 @@ export function toProxyPath(value) {
   const hash = target.hash;
   target.hash = "";
   const search = target.search ? `?__ssq=${encodeURIComponent(target.search)}` : "";
-  return `/proxy/${target.protocol}//${target.host}${target.pathname}${search}${hash}`;
+  return `/proxy/${target.protocol.slice(0, -1)}/${target.host}${target.pathname}${search}${hash}`;
 }
 
 function checkedAddress(address) {
@@ -404,7 +416,10 @@ const READER_BRIDGE = `(()=>{
     try{
       const route=new URL(location.href);
       const raw=route.pathname.slice("/proxy/".length);
-      const target=new URL(raw);
+      const legacy=raw.match(/^(https?):\\/{1,2}([^/]+)(\\/.*)?$/i);
+      const stable=raw.match(/^(https?)\\/([^/]+)(\\/.*)?$/i);
+      const match=legacy||stable;if(!match)return "";
+      const target=new URL(match[1]+"://"+match[2]+(match[3]||"/"));
       const query=route.searchParams.get("__ssq");
       if(query!==null) target.search=query;
       else if(route.search) target.search=route.search;
@@ -415,7 +430,7 @@ const READER_BRIDGE = `(()=>{
   function proxyPath(value){
     const target=new URL(value);const hash=target.hash;const query=target.search;
     target.hash="";target.search="";
-    return "/proxy/"+target.protocol+"//"+target.host+target.pathname+(query?"?__ssq="+encodeURIComponent(query):"")+hash;
+    return "/proxy/"+target.protocol.slice(0,-1)+"/"+target.host+target.pathname+(query?"?__ssq="+encodeURIComponent(query):"")+hash;
   }
   addEventListener("message",event=>{
     if(event.source!==parent||event.data?.source!=="sonsisearch-browser")return;
