@@ -15,5 +15,5 @@ export default async function BrowserPage({ searchParams }: { searchParams: Prom
       if (["http:", "https:"].includes(configured.protocol)) proxyOrigin = configured.origin;
     } catch { /* Fall back to this service's public origin. */ }
   }
-  return <BrowserShell key={url} initialUrl={url} proxyOrigin={proxyOrigin} />;
+  return <BrowserShell initialUrl={url} proxyOrigin={proxyOrigin} />;
 }

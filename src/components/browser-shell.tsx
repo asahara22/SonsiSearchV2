@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState, useSyncExternalSto
 import { useRouter } from "next/navigation";
 import { parseAddressOrSearch } from "@/lib/address";
 import { buildSearchUrl, getSearchEngine } from "@/lib/search-engine";
+import { toReverseProxyPath } from "@/lib/reverse-proxy-url";
 
 type SavedSite = { title: string; url: string; visited: number };
 type DiagnosticCheck = { id: string; label: string; state: "pending" | "ok" | "warn" | "fail"; detail: string };
@@ -13,7 +14,7 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
   const initial = parseAddressOrSearch(initialUrl);
   const [input, setInput] = useState(initial.kind === "url" ? initial.value : "");
   const [target, setTarget] = useState(initial.kind === "url" ? initial.value : "");
-  const [error, setError] = useState(initial.kind === "invalid" ? "Credentials in a URL are not supported." : proxyOrigin ? "" : "Proxy service is not configured.");
+  const [error, setError] = useState(initial.kind === "invalid" ? "Credentials in a URL are not supported." : "");
   const [loading, setLoading] = useState(initial.kind === "url");
   const [isBookmarked, setIsBookmarked] = useState(false);
   const incognito = useSyncExternalStore(subscribeIncognito, getIncognitoPreference, () => false);
@@ -33,8 +34,12 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
   const router = useRouter();
   const proxy = proxyOrigin.replace(/\/$/, "");
   const send = useCallback((type: string, url?: string) => {
+    if (target) {
+      frameRef.current?.contentWindow?.postMessage({ source: "sonsisearch-browser", type: type.replace(/^sonsisearch:/, ""), ...(url ? { url } : {}) }, "*");
+      return;
+    }
     frameRef.current?.contentWindow?.postMessage({ type, ...(url ? { url } : {}) }, proxy);
-  }, [proxy]);
+  }, [proxy, target]);
   const startLoadTimeout = useCallback(() => {
     if (loadTimer.current) clearTimeout(loadTimer.current);
     loadTimer.current = setTimeout(() => {
@@ -49,8 +54,40 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
   }, [initialSearch, initialUrl, router]);
 
   useEffect(() => {
+    const next = parseAddressOrSearch(initialUrl);
+    if (next.kind === "url" && next.value !== target) {
+      setTarget(next.value);
+      setInput(next.value);
+      setLoading(true);
+      setError("");
+    }
+  }, [initialUrl, target]);
+
+  useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      if (event.source !== frameRef.current?.contentWindow || event.origin !== proxy) return;
+      if (event.source !== frameRef.current?.contentWindow) return;
+      if (target) {
+        if (event.origin !== "null" || event.data?.source !== "sonsisearch-reverse-proxy") return;
+        if (event.data.type === "ready") setFrameReady(true);
+        if (["ready", "location"].includes(event.data.type) && typeof event.data.url === "string") {
+          const url = safeHttpUrl(event.data.url);
+          if (!url) return;
+          setTarget(url);
+          setInput(url);
+          setError("");
+          if (!incognito) rememberVisit(url);
+          const route = `/browser?url=${encodeURIComponent(url)}`;
+          if (`${window.location.pathname}${window.location.search}` !== route) router.replace(route);
+          setIsBookmarked(!incognito && readBookmarks().some((item) => item.url === url));
+        }
+        if (event.data.type === "loaded") {
+          if (loadTimer.current) clearTimeout(loadTimer.current);
+          loadTimer.current = null;
+          setLoading(false);
+        }
+        return;
+      }
+      if (event.origin !== proxy) return;
       if (event.data?.type === "sonsisearch:ready") setFrameReady(true);
       if (event.data?.type === "sonsisearch:diagnostic" && typeof event.data.stage === "string") {
         const stage = event.data.stage as string;
@@ -84,7 +121,7 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
     };
     window.addEventListener("message", onMessage);
     return () => { window.removeEventListener("message", onMessage); if (loadTimer.current) clearTimeout(loadTimer.current); };
-  }, [incognito, proxy, router]);
+  }, [incognito, proxy, router, target]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -107,11 +144,11 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
   }, [send, startLoadTimeout]);
 
   useEffect(() => {
-    if (frameReady && target) {
-      startLoadTimeout();
-      send("sonsisearch:navigate", target);
-    }
-  }, [frameReady, target, send, startLoadTimeout]);
+    if (!target) return;
+    setLoading(true);
+    startLoadTimeout();
+    return () => { if (loadTimer.current) clearTimeout(loadTimer.current); };
+  }, [target, startLoadTimeout]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -140,13 +177,32 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
     setDiagnosticStages({});
     const initialChecks: DiagnosticCheck[] = [
       { id: "browser", label: "Browser capabilities", state: "pending", detail: "Checking secure context, Service Worker, and WebSocket support" },
-      { id: "proxy", label: "Proxy service", state: "pending", detail: "Checking HTTPS endpoint" },
-      { id: "embed", label: "Embed permission", state: "pending", detail: "Checking allowed frontend origin" },
-      { id: "auth", label: "Proxy access gate", state: "pending", detail: "Checking whether authentication is required" },
-      { id: "websocket", label: "Wisp WebSocket", state: "pending", detail: "Checking secure WebSocket handshake" },
-      { id: "app", label: "Halcyon app in iframe", state: "pending", detail: "Waiting for embedded app response" },
+      { id: "proxy", label: target ? "Same-domain reader" : "Proxy service", state: "pending", detail: "Checking HTTPS endpoint" },
+      { id: "embed", label: target ? "Sandboxed frame" : "Embed permission", state: "pending", detail: target ? "Checking the isolated reader frame" : "Checking allowed frontend origin" },
+      { id: "auth", label: target ? "Session access" : "Proxy access gate", state: "pending", detail: "Checking whether authentication is required" },
+      { id: "websocket", label: target ? "Page network access" : "Wisp WebSocket", state: "pending", detail: target ? "Checking supported page network features" : "Checking secure WebSocket handshake" },
+      { id: "app", label: target ? "Reverse-proxy route" : "Halcyon app in iframe", state: "pending", detail: target ? "Waiting for the reader endpoint" : "Waiting for embedded app response" },
     ];
     setDiagnosticChecks(initialChecks);
+    if (target) {
+      updateDiagnostic("browser", window.isSecureContext && navigator.onLine ? "ok" : "fail", !navigator.onLine ? "The browser reports that it is offline." : window.isSecureContext ? "The reader can use the current secure browser session." : "HTTPS is required for the reader.");
+      updateDiagnostic("embed", "ok", "The reader uses a same-domain sandboxed frame; Halcyon embed allowlists are not used.");
+      updateDiagnostic("websocket", "warn", "Wisp is not used by this reader. Page fetch/XHR and WebSocket connections are intentionally disabled.");
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 7000);
+      try {
+        const response = await fetch(toReverseProxyPath(target), { method: "HEAD", cache: "no-store", credentials: "same-origin", signal: controller.signal });
+        updateDiagnostic("proxy", response.ok ? "ok" : "fail", `Same-domain reader returned HTTP ${response.status}.`);
+        updateDiagnostic("auth", response.status === 401 ? "fail" : "ok", response.status === 401 ? "The route requires an authenticated SonsiSearch session." : "The page route accepted this browser session.");
+        updateDiagnostic("app", response.ok ? "ok" : "fail", response.ok ? "The reverse-proxy route is responding." : `Request failed with HTTP ${response.status}. Check the target URL, Render service, or network filter.`);
+      } catch (reason) {
+        const detail = reason instanceof DOMException && reason.name === "AbortError" ? "The reader check timed out after 7 seconds." : "The reader route could not be reached.";
+        updateDiagnostic("proxy", "fail", detail);
+        updateDiagnostic("auth", "warn", "Could not inspect the session gate.");
+        updateDiagnostic("app", "fail", detail);
+      } finally { clearTimeout(timeout); setDiagnosticsRunning(false); }
+      return;
+    }
     const browserReady = window.isSecureContext && "serviceWorker" in navigator && typeof WebSocket !== "undefined";
     updateDiagnostic("browser", browserReady && navigator.onLine ? "ok" : "fail", !navigator.onLine
       ? "The browser reports that it is offline."
@@ -304,8 +360,8 @@ export function BrowserShell({ initialUrl, proxyOrigin }: { initialUrl: string; 
     </div>
     {incognito && <div className="incognito-banner">プライベートセッション：このアプリの履歴には保存されません。Proxyや接続先には通信が見えます。</div>}
     <div className="browser-progress"><span className={loading ? "active" : ""} /></div>
-      {target ? <div className="web-viewport"><div className="browser-wait" hidden={!loading}><span className="loading-orbit"/><span>Connecting securely…</span><button className="wait-diagnostics" onClick={() => void runDiagnostics()}>Diagnose</button></div>{proxy && <iframe ref={frameRef} className="browser-frame" title="Web page" src={`${proxy}/proxy`} onLoad={() => setFrameLoaded(true)} allow="clipboard-read; clipboard-write; fullscreen; autoplay; encrypted-media; picture-in-picture" referrerPolicy="no-referrer" />}{error && <ConnectionError error={error} target={target} retry={() => { setError(""); setLoading(true); startLoadTimeout(); send("sonsisearch:navigate", target); }} back={() => router.back()} diagnose={() => void runDiagnostics()} />}</div> : error ? <ConnectionError error={error} back={() => router.back()} diagnose={() => void runDiagnostics()} /> : <section className="browser-welcome"><div className="welcome-emblem">◉</div><span className="eyebrow">SONSIPROXY · READY</span><h1>Where to next?</h1><p>Enter a web address or search the open web.</p><button className="action-button" onClick={() => router.push("/")}>⌂ <span>Go to search</span></button><button className="action-button" onClick={() => void runDiagnostics()}>ⓘ <span>Connection diagnostics</span></button></section>}
-    {diagnosticsOpen && <DiagnosticsPanel checks={diagnosticChecks} stages={diagnosticStages} running={diagnosticsRunning} copyMessage={copyMessage} report={getDiagnosticReport()} rerun={() => void runDiagnostics()} copy={() => void copyDiagnosticReport()} close={() => setDiagnosticsOpen(false)} />}
+      {target ? <div className="web-viewport"><div className="browser-wait" hidden={!loading}><span className="loading-orbit"/><span>Connecting securely…</span><button className="wait-diagnostics" onClick={() => void runDiagnostics()}>Diagnose</button></div><iframe ref={frameRef} className="browser-frame" title="Web page" src={toReverseProxyPath(target)} onLoad={() => setFrameLoaded(true)} allow="clipboard-read; clipboard-write; fullscreen; autoplay; encrypted-media; picture-in-picture" referrerPolicy="no-referrer" />{error && <ConnectionError error={error} target={target} retry={() => { setError(""); setLoading(true); startLoadTimeout(); send("sonsisearch:navigate", target); }} back={() => router.back()} diagnose={() => void runDiagnostics()} />}</div> : error ? <ConnectionError error={error} back={() => router.back()} diagnose={() => void runDiagnostics()} /> : <section className="browser-welcome"><div className="welcome-emblem">◉</div><span className="eyebrow">SONSIPROXY · READY</span><h1>Where to next?</h1><p>Enter a web address or search the open web.</p><button className="action-button" onClick={() => router.push("/")}>⌂ <span>Go to search</span></button><button className="action-button" onClick={() => void runDiagnostics()}>ⓘ <span>Connection diagnostics</span></button></section>}
+    {diagnosticsOpen && <DiagnosticsPanel checks={diagnosticChecks} stages={diagnosticStages} running={diagnosticsRunning} copyMessage={copyMessage} report={getDiagnosticReport()} reverseProxy={Boolean(target)} rerun={() => void runDiagnostics()} copy={() => void copyDiagnosticReport()} close={() => setDiagnosticsOpen(false)} />}
   </main>;
 }
 
@@ -313,12 +369,13 @@ function ConnectionError({ error, target, retry, back, diagnose }: { error: stri
   return <div className="connection-overlay"><section className="connection-error glass-panel"><span className="error-orb">!</span><span className="eyebrow">CONNECTION INTERRUPTED</span><h1>Unable to load this page</h1><p>{error}</p><div className="error-actions">{retry && <button className="action-button primary-action" onClick={retry}>Retry</button>}<button className="action-button" onClick={diagnose}>Run diagnostics</button><button className="action-button" onClick={back}>Back</button>{target && <button className="action-button" onClick={() => window.open(target, "_blank", "noopener,noreferrer")}>Open original ↗</button>}</div></section></div>;
 }
 
-function DiagnosticsPanel({ checks, stages, running, copyMessage, report, rerun, copy, close }: {
+function DiagnosticsPanel({ checks, stages, running, copyMessage, report, reverseProxy, rerun, copy, close }: {
   checks: DiagnosticCheck[];
   stages: Record<string, DiagnosticStage>;
   running: boolean;
   copyMessage: string;
   report: string;
+  reverseProxy: boolean;
   rerun: () => void;
   copy: () => void;
   close: () => void;
@@ -339,7 +396,7 @@ function DiagnosticsPanel({ checks, stages, running, copyMessage, report, rerun,
   return <div className="diagnostics-overlay" role="presentation">
     <section className="diagnostics-panel glass-panel" role="dialog" aria-modal="true" aria-labelledby="diagnostics-title">
       <header className="diagnostics-header"><div><span className="eyebrow">NETWORK TROUBLESHOOTING</span><h2 id="diagnostics-title">Connection diagnostics</h2></div><button className="browser-control" onClick={close} aria-label="Close diagnostics">×</button></header>
-      <p className="diagnostics-intro">Checks the proxy connection, embed settings, passphrase gate, and Wisp WebSocket. It does not include the page URL or passphrase in the report.</p>
+      <p className="diagnostics-intro">{reverseProxy ? "Checks the same-domain reader endpoint and browser session. Page fetch/XHR and WebSocket connections are intentionally unsupported. The report does not include the page URL or passphrase." : "Checks the proxy connection, embed settings, passphrase gate, and Wisp WebSocket. It does not include the page URL or passphrase in the report."}</p>
       <div className="diagnostics-list">
         {checks.map((check) => <DiagnosticRow key={check.id} label={check.label} state={check.state} stateLabel={stateLabel(check.state)} detail={check.detail} />)}
         {Object.entries(stages).map(([stage, value]) => <DiagnosticRow key={stage} label={stageLabels[stage] || stage} state={value.state} stateLabel={stateLabel(value.state)} detail={value.detail} />)}

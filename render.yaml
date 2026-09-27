@@ -34,3 +34,11 @@ services:
         value: "67108864"
       - key: HALCYON_DENY_HOSTS
         value: ""
+      - key: SONSI_PROXY_RL
+        value: "120"
+      - key: SONSI_PROXY_MAX_CONCURRENT
+        value: "8"
+      - key: SONSI_PROXY_MAX_RESPONSE_BYTES
+        value: "8388608"
+      - key: SONSI_PROXY_SELF_HOSTS
+        value: sonsisearch-v2.onrender.com

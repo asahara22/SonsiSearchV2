@@ -11,7 +11,6 @@ type SearchResponse = { results?: Result[]; redirect?: string; error?: string };
 export function SearchResults({ query }: { query: string }) {
   const [state, setState] = useState<{ query: string; status: "loading" | "ready" | "error"; results: Result[]; error: string }>({ query, status: "loading", results: [], error: "" });
   const router = useRouter();
-
   useEffect(() => {
     if (!query.trim()) return;
     const controller = new AbortController();
@@ -38,8 +37,8 @@ export function SearchResults({ query }: { query: string }) {
   return <section aria-live="polite">
     <h1 style={{ fontSize: 19, fontWeight: 600, margin: "30px 0 10px" }}>「{query}」の検索結果</h1>
     {current.status === "loading" && <p className="status">検索しています…</p>}
-    {current.status === "error" && <><p className="error">{current.error}</p><Link className="action-button" href={`/browser?url=${encodeURIComponent(fallback)}`}>検索サイトをBrowserで開く ↗</Link></>}
-    {current.status === "ready" && current.results.length === 0 && <><p className="status">検索結果を取得できませんでした。</p><Link className="action-button" href={`/browser?url=${encodeURIComponent(fallback)}`}>検索サイトをBrowserで開く ↗</Link></>}
+    {current.status === "error" && <><p className="error">{current.error}</p><Link className="action-button" href={`/browser?url=${encodeURIComponent(fallback)}`}>検索サイトをProxyで開く ↗</Link></>}
+    {current.status === "ready" && current.results.length === 0 && <><p className="status">検索結果を取得できませんでした。</p><Link className="action-button" href={`/browser?url=${encodeURIComponent(fallback)}`}>検索サイトをProxyで開く ↗</Link></>}
     {current.results.map((result, index) => {
       const target = safeHttpUrl(result.url);
       if (!target) return null;

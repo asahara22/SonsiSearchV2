@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { server as wisp, logging } from "@mercuryworkshop/wisp-js/server";
+import { ProxyError, serveReverseProxy } from "./reverse-proxy.js";
 
 const require = createRequire(import.meta.url);
 const ipaddr = require("ipaddr.js");
@@ -226,6 +227,9 @@ function makeLimiter(max, windowMs) {
   };
 }
 const httpLimiter = makeLimiter(num("HALCYON_RL_HTTP", 600), 60_000); // req/min/IP
+const reverseProxyLimiter = makeLimiter(num("SONSI_PROXY_RL", 120), 60_000);
+const MAX_REVERSE_PROXY_CONCURRENT = num("SONSI_PROXY_MAX_CONCURRENT", 8);
+let reverseProxyConcurrent = 0;
 const loginLimiter = makeLimiter(num("HALCYON_RL_LOGIN", 20), 60_000); // strict
 const wispLimiter = makeLimiter(num("HALCYON_RL_WISP", 300), 60_000); // upgrades/min/IP
 const MAX_WISP_CONCURRENT = num("HALCYON_MAX_CONN", 128); // concurrent tunnels/IP
@@ -677,6 +681,7 @@ function loginPage(error = false) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+    const isReverseProxyRequest = /^\/proxy\/https?:\/\//i.test(url.pathname);
     let path = decodeURIComponent(url.pathname);
     const isBareRequest = bareServer.shouldRoute(req);
 
@@ -814,6 +819,37 @@ const server = http.createServer(async (req, res) => {
       }
       capBareResponse(res);
       await bareServer.routeRequest(req, res);
+      return;
+    }
+
+    // Same-host public-content proxy. Kept separate from Halcyon's /proxy UI;
+    // only safe, credential-free GET/HEAD requests pass through its fetcher.
+    if (isReverseProxyRequest) {
+      if (!reverseProxyLimiter(ip)) {
+        res.writeHead(429, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "Retry-After": "60" });
+        return res.end("Proxy request limit reached.");
+      }
+      if (reverseProxyConcurrent >= MAX_REVERSE_PROXY_CONCURRENT) {
+        res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "Retry-After": "5" });
+        return res.end("Proxy is busy. Please retry shortly.");
+      }
+      reverseProxyConcurrent++;
+      try {
+        const selfHosts = [
+          req.headers.host,
+          req.headers["x-forwarded-host"],
+          ...(process.env.SONSI_PROXY_SELF_HOSTS || "").split(","),
+        ].flatMap((value) => String(value || "").split(",")).map((value) => value.trim());
+        await serveReverseProxy(req, res, req.url, { selfHosts });
+      } catch (error) {
+        if (res.headersSent || res.destroyed) return;
+        const status = error instanceof ProxyError ? error.status : 502;
+        const message = error instanceof ProxyError ? error.message : "Unable to fetch the target safely.";
+        res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+        res.end(message);
+      } finally {
+        reverseProxyConcurrent--;
+      }
       return;
     }
 

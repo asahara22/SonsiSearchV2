@@ -2,22 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { GET } from "../src/app/api/search/route.ts";
 
-function request(query, ip) {
-  return new Request(`http://localhost/api/search?q=${encodeURIComponent(query)}`, {
+function request(query, ip, engine = "duckduckgo") {
+  return new Request(`http://localhost/api/search?q=${encodeURIComponent(query)}&engine=${engine}`, {
     headers: { "x-real-ip": ip },
   });
 }
 
-test("search route normalizes provider results and rejects unsafe schemes", async () => {
-  process.env.SEARCH_API_URL = "https://provider.example/search";
-  process.env.SEARCH_API_KEY = "test-secret";
+test("DuckDuckGo results are normalized and unsafe schemes are rejected", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, init) => {
-    assert.equal(new Headers(init.headers).get("authorization"), "Bearer test-secret");
-    return Response.json({ results: [
-      { title: "Safe", url: "https://example.com/path", description: "A result" },
-      { title: "Unsafe", url: "javascript:alert(1)", description: "discard" },
-    ] });
+  globalThis.fetch = async (url, init) => {
+    assert.equal(new URL(url).hostname, "html.duckduckgo.com");
+    assert.equal(new Headers(init.headers).get("accept"), "text/html");
+    return new Response('<a class="result__a" href="https://example.com/path">Safe</a><a class="result__snippet">A result</a><a class="result__a" href="javascript:alert(1)">Unsafe</a>');
   };
   try {
     const response = await GET(request("demo", "192.0.2.10"));
@@ -30,25 +26,24 @@ test("search route normalizes provider results and rejects unsafe schemes", asyn
   }
 });
 
-test("search route validates query and provider configuration", async () => {
-  const originalUrl = process.env.SEARCH_API_URL;
-  const originalKey = process.env.SEARCH_API_KEY;
-  delete process.env.SEARCH_API_URL;
-  delete process.env.SEARCH_API_KEY;
+test("Yahoo is the default search engine and query validation still applies", async () => {
+  const response = await GET(new Request("http://localhost/api/search?q=demo"));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { redirect: "https://search.yahoo.com/search?p=demo" });
+  assert.equal((await GET(request("", "192.0.2.11"))).status, 400);
+});
+
+test("DuckDuckGo search works without an API key and reports upstream errors", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("unavailable", { status: 503 });
   try {
-    assert.equal((await GET(request("", "192.0.2.11"))).status, 400);
-    assert.equal((await GET(request("query", "192.0.2.12"))).status, 503);
+    assert.equal((await GET(request("query", "192.0.2.12"))).status, 502);
   } finally {
-    if (originalUrl === undefined) delete process.env.SEARCH_API_URL;
-    else process.env.SEARCH_API_URL = originalUrl;
-    if (originalKey === undefined) delete process.env.SEARCH_API_KEY;
-    else process.env.SEARCH_API_KEY = originalKey;
+    globalThis.fetch = originalFetch;
   }
 });
 
 test("search route limits provider response bytes", async () => {
-  process.env.SEARCH_API_URL = "https://provider.example/search";
-  process.env.SEARCH_API_KEY = "test-secret";
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(new ReadableStream({
     start(controller) {
@@ -66,12 +61,10 @@ test("search route limits provider response bytes", async () => {
 });
 
 test("search route applies a per-IP request limit", async () => {
-  process.env.SEARCH_API_URL = "https://provider.example/search";
-  process.env.SEARCH_API_KEY = "test-secret";
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({ results: [] });
   try {
-    for (let index = 0; index < 20; index += 1) {
+    for (let index = 0; index < 30; index += 1) {
       assert.equal((await GET(request("query", "192.0.2.14"))).status, 200);
     }
     const limited = await GET(request("query", "192.0.2.14"));
