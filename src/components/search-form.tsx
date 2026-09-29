@@ -18,11 +18,11 @@ export function SearchForm({ initialQuery = "", compact = false }: { initialQuer
       destination.searchParams.set("q", value);
       destination.searchParams.set("iax", "images");
       destination.searchParams.set("ia", "images");
-      router.push(`/browser?url=${encodeURIComponent(destination.href)}`);
+      window.location.href = new URL(`/browser?url=${encodeURIComponent(destination.href)}`, window.location.origin).href;
       return;
     }
     const parsed = parseAddressOrSearch(value);
-    if (parsed.kind === "url") router.push(`/browser?url=${encodeURIComponent(parsed.value)}`);
+    if (parsed.kind === "url") window.location.href = new URL(`/browser?url=${encodeURIComponent(parsed.value)}`, window.location.origin).href;
     else if (parsed.kind === "search") router.push(`/search?q=${encodeURIComponent(parsed.value)}`);
   }
 

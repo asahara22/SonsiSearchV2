@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { server as wisp, logging } from "@mercuryworkshop/wisp-js/server";
+import { NodeTCPSocket } from "./node_modules/@mercuryworkshop/wisp-js/src/server/net.mjs";
 import { ProxyError, serveReverseProxy } from "./reverse-proxy.js";
+import { browserCookie, endTransfer, getOrCreateSession, getSpeedSnapshot, parseSessionCookie, recordIngress, setTarget, startTransfer, validateTarget, moveHistory } from "./browser-session.js";
 
 const require = createRequire(import.meta.url);
 const ipaddr = require("ipaddr.js");
@@ -155,7 +157,7 @@ function isValidBareToken(req) {
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
-function capBareResponse(res) {
+function capBareResponse(res, sessionId = "") {
   let sent = 0;
   let exceeded = false;
   res.once("close", () => {
@@ -171,12 +173,22 @@ function capBareResponse(res) {
     res.destroy();
     return true;
   };
+  const originalCount = count;
+  // Count only bytes that are actually forwarded from the Bare backend.
+  const counted = (chunk, encoding) => {
+    const exceededNow = originalCount(chunk, encoding);
+    if (!exceededNow && chunk != null) {
+      const bytes = typeof chunk === "string" ? Buffer.byteLength(chunk, typeof encoding === "string" ? encoding : "utf8") : chunk.byteLength ?? chunk.length ?? 0;
+      recordIngress(sessionId, bytes);
+    }
+    return exceededNow;
+  };
   res.write = function (chunk, encoding, callback) {
-    if (count(chunk, encoding)) return false;
+    if (counted(chunk, encoding)) return false;
     return originalWrite(chunk, encoding, callback);
   };
   res.end = function (chunk, encoding, callback) {
-    if (count(chunk, encoding)) return res;
+    if (counted(chunk, encoding)) return res;
     return originalEnd(chunk, encoding, callback);
   };
 }
@@ -630,14 +642,16 @@ function isAuthed(req, allowBareToken = false) {
   return allowBareToken && isValidBareToken(req);
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = 4096) {
   return new Promise((resolve) => {
     let data = "";
+    let tooLarge = false;
     req.on("data", (c) => {
+      if (tooLarge) return;
       data += c;
-      if (data.length > 4096) req.destroy(); // no big bodies here
+      if (Buffer.byteLength(data) > maxBytes) { tooLarge = true; data = ""; }
     });
-    req.on("end", () => resolve(data));
+    req.on("end", () => resolve(tooLarge ? "" : data));
   });
 }
 
@@ -782,6 +796,61 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // Opaque browser session. Target URLs live only in this process's bounded,
+    // expiring memory store; the cookie contains a random identifier only.
+    const sessionId = parseSessionCookie(req.headers.cookie);
+    const isSecureRequest = (req.headers["x-forwarded-proto"] || "").split(",")[0].trim() === "https";
+    if (path === "/browser" && req.method === "GET" && url.searchParams.has("url")) {
+      const target = validateTarget(url.searchParams.get("url"));
+      if (!target) {
+        res.writeHead(303, { Location: "/browser", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+        return res.end();
+      }
+      const { id, session } = getOrCreateSession(sessionId);
+      setTarget(session, target);
+      res.writeHead(303, { Location: "/browser", "Set-Cookie": browserCookie(id, isSecureRequest), "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+      return res.end();
+    }
+    if (path === "/api/browser/session" && req.method === "POST") {
+      const origin = req.headers.origin;
+      const scheme = isSecureRequest ? "https" : "http";
+      const forwardedHost = (req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
+      let sameOrigin = false;
+      try { sameOrigin = Boolean(origin && new URL(origin).origin === `${scheme}://${forwardedHost}`); } catch {}
+      if (!sameOrigin || !/^application\/json(?:\s*;|$)/i.test(req.headers["content-type"] || "")) {
+        res.writeHead(403, { "Cache-Control": "no-store" }); return res.end();
+      }
+      let body;
+      try { body = JSON.parse(await readBody(req, 12 * 1024)); } catch { body = null; }
+      const { id, session } = getOrCreateSession(sessionId);
+      const action = body?.action;
+      let target = null;
+      if (["navigate", "replace", "pop"].includes(action)) {
+        if (!setTarget(session, body.url, action)) {
+          res.writeHead(400, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+          return res.end(JSON.stringify({ error: "invalid_url" }));
+        }
+        target = session.target;
+      } else if (action === "back" || action === "forward") target = moveHistory(session, action);
+      else if (action === "current") target = session.target || null;
+      else {
+        res.writeHead(400, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        return res.end(JSON.stringify({ error: "invalid_action" }));
+      }
+      res.setHeader("Set-Cookie", browserCookie(id, isSecureRequest));
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+      return res.end(JSON.stringify({ target }));
+    }
+    if (path === "/api/halcyon/speed" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+      return res.end(JSON.stringify(getSpeedSnapshot(sessionId)));
+    }
+    if (path === "/browser" && req.method === "GET") {
+      const { id, session } = getOrCreateSession(sessionId);
+      res.setHeader("Set-Cookie", browserCookie(id, isSecureRequest));
+      req.headers["x-sonsisearch-browser-target"] = session.target || "";
+    }
+
     // Bare transport omits browser cookies by design. Issue a short-lived,
     // scoped bearer token only to an already authenticated browser session.
     if (path === "/.well-known/halcyon-bare-token") {
@@ -817,7 +886,13 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(413, { "Content-Type": "text/plain; charset=utf-8" });
         return res.end("Bare request body exceeds the configured limit.");
       }
-      capBareResponse(res);
+      const bareSessionId = parseSessionCookie(req.headers.cookie);
+      if (bareSessionId) {
+        startTransfer(bareSessionId);
+        res.once("finish", () => endTransfer(bareSessionId));
+        res.once("close", () => { if (!res.writableFinished) endTransfer(bareSessionId, true); });
+      }
+      capBareResponse(res, bareSessionId);
       await bareServer.routeRequest(req, res);
       return;
     }
@@ -974,7 +1049,40 @@ server.on("upgrade", (req, socket, head) => {
     if (n <= 0) wispConns.delete(ip);
     else wispConns.set(ip, n);
   });
-  wisp.routeRequest(req, socket, head);
+  const browserSessionId = parseSessionCookie(req.headers.cookie);
+  class MeasuredTCPSocket extends NodeTCPSocket {
+    constructor(hostname, port) {
+      super(hostname, port);
+      this.measurementEnded = false;
+    }
+    async connect() {
+      try {
+        await super.connect();
+        if (browserSessionId) {
+          startTransfer(browserSessionId);
+          this.socket?.once("error", () => this.finishMeasurement(true));
+          this.socket?.once("close", () => this.finishMeasurement());
+        }
+      } catch (error) {
+        if (browserSessionId) { startTransfer(browserSessionId); this.finishMeasurement(true); }
+        throw error;
+      }
+    }
+    async recv() {
+      const data = await super.recv();
+      if (data?.byteLength) recordIngress(browserSessionId, data.byteLength);
+      return data;
+    }
+    finishMeasurement(errored = false) {
+      if (this.measurementEnded) return;
+      this.measurementEnded = true;
+      endTransfer(browserSessionId, errored);
+    }
+    async close() {
+      try { await super.close(); } finally { this.finishMeasurement(); }
+    }
+  }
+  wisp.routeRequest(req, socket, head, { TCPSocket: MeasuredTCPSocket });
 });
 
 async function start() {

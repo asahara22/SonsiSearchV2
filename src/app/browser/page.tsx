@@ -1,9 +1,9 @@
 import { BrowserShell } from "@/components/browser-shell";
 import { headers } from "next/headers";
 
-export default async function BrowserPage({ searchParams }: { searchParams: Promise<{ url?: string }> }) {
-  const { url = "" } = await searchParams;
+export default async function BrowserPage() {
   const requestHeaders = await headers();
+  const url = requestHeaders.get("x-sonsisearch-browser-target") || "";
   const configuredProxy = process.env.NEXT_PUBLIC_PROXY_URL?.trim();
   const host = requestHeaders.get("x-forwarded-host")?.split(",", 1)[0]?.trim() || requestHeaders.get("host") || "localhost:3000";
   const forwardedProtocol = requestHeaders.get("x-forwarded-proto")?.split(",", 1)[0]?.trim();

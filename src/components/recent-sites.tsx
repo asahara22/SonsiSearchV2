@@ -32,7 +32,7 @@ export function HomeBookmarks() {
     <div className="section-heading"><div><span className="eyebrow">SAVED FOR LATER</span><h2>Bookmarks</h2></div><Link href="/bookmarks">View all <span>↗</span></Link></div>
     {sites.length ? <div className="site-grid">{sites.map((site) => {
       const host = getHost(site.url);
-      return <Link prefetch={false} className="site-card glass-panel" href={`/browser?url=${encodeURIComponent(site.url)}`} key={site.url}><span className="site-glyph">{host[0]?.toUpperCase() || "☆"}</span><span className="site-copy"><strong>{site.title || host}</strong><small>{host}</small></span><span className="site-arrow">↗</span></Link>;
+      return <a className="site-card glass-panel" href={`/browser?url=${encodeURIComponent(site.url)}`} key={site.url}><span className="site-glyph">{host[0]?.toUpperCase() || "☆"}</span><span className="site-copy"><strong>{site.title || host}</strong><small>{host}</small></span><span className="site-arrow">↗</span></a>;
     })}</div> : <Link className="bookmark-empty glass-panel" href="/bookmarks"><span className="bookmark-empty-icon">☆</span><span><strong>No bookmarks yet</strong><small>Save pages from the Browser and they’ll appear here.</small></span><span className="site-arrow">↗</span></Link>}
   </section>;
 }
